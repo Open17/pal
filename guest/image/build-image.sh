@@ -59,6 +59,12 @@ for tool in curl shasum tar hdiutil ssh-keygen openssl python3; do
 done
 [[ $disk_gib =~ ^[0-9]+$ && $disk_gib -ge 16 ]] || die "--disk-size must be at least 16 (GiB)"
 
+# Rebuilding under a running VM would swap its disk or seed out from under it.
+socket="$(dirname "$vm_dir")/run/palvmd.sock"
+if [[ -S $socket ]] && python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1])' "$socket" 2>/dev/null; then
+    die "the VM is running; turn it off first (palctl stop)"
+fi
+
 cache_dir="$vm_dir/cache"
 secrets_dir="$vm_dir/secrets"
 disk="$vm_dir/disk.img"
