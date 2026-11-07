@@ -1,0 +1,18 @@
+# One X display (Xvnc + xfce4 session) per owner: a bot id or "operator".
+#
+# The runtime writes the per-display settings to the EnvironmentFile and
+# starts, freezes, thaws, and stops this unit on demand. Freezing suspends the
+# whole cgroup, which is how a display "sleeps" without losing its windows.
+
+[Unit]
+Description=Pal display for %i
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/pal/displays/%i.env
+ExecStart=/opt/pal/bin/pal-display-session
+ExecStop=/opt/pal/bin/pal-display-save
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=20
