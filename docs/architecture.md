@@ -22,8 +22,9 @@ top of the host and talks to both the host daemon and the runtime API.
 │  │   ├─ Tool registry ......... in-process tools exposed to bots           │  │
 │  │   └─ Display manager ....... on-demand displays, idle sleep, VNC proxy  │  │
 │  │                                                                         │  │
-│  │  pal-display@<owner> (systemd user units)                               │  │
-│  │   └─ Xvnc :N  +  xfce4-session        (one per bot, plus "operator")    │  │
+│  │  pal-display-<owner>.slice (one per bot, plus "operator")               │  │
+│  │   ├─ pal-display@<owner>: Xvnc :N + xfce4-session                       │  │
+│  │   └─ apps launched with pal-open                                        │  │
 │  │                                                                         │  │
 │  │  ~/workspaces/<bot>/   each bot's main folder                           │  │
 │  │  ~/workspaces/shared/  files every bot can see                          │  │
@@ -108,10 +109,15 @@ Each bot owns one X display (`Xvnc` running an `xfce4-session`), and there is an
 - **On demand.** A display is not started until its bot needs the computer:
   any tool that is marked as needing a display wakes it first, and bots can
   wake it explicitly before running graphical programs from the shell.
+- **One slice per display.** The X server, the desktop session, and every
+  program launched onto the display with `pal-open` run together in the
+  systemd slice `pal-display-<owner>.slice`. Programs started that way are not
+  children of the bot's shell, so they stay open when the shell or the runtime
+  exits or restarts.
 - **Idle sleep.** After 8 minutes without bot activity and with no viewer
-  connected, the display is **frozen** (its cgroup is suspended). Frozen
-  displays use no CPU but keep every window and process exactly as they were,
-  so the bot — or you — comes back to the same screen.
+  connected, the display's slice is **frozen**. Frozen displays use no CPU but
+  keep every window and process exactly as they were, so the bot — or you —
+  comes back to the same screen.
 - **Viewing.** Each display has a VNC endpoint behind a small proxy in the
   runtime. Connecting a viewer wakes the display and keeps it awake while the
   viewer is attached.
