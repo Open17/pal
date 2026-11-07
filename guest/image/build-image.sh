@@ -116,8 +116,9 @@ if [[ $seed_only == false ]]; then
     python3 -c 'import os, sys; os.truncate(sys.argv[1], int(sys.argv[2]) << 30)' \
         "$work/disk.raw" "$disk_gib"
     mv -f "$work/disk.raw" "$disk"
-    # A new disk needs a fresh firmware store and machine identity.
-    rm -f "$vm_dir/efi-vars.fd" "$vm_dir/machine-id"
+    # A new disk needs a fresh firmware store and machine identity, and it
+    # generates new SSH host keys, so forget the old ones.
+    rm -f "$vm_dir/efi-vars.fd" "$vm_dir/machine-id" "$vm_dir/known_hosts"
 fi
 [[ -f $disk ]] || die "no disk at $disk; run without --refresh-seed first"
 
