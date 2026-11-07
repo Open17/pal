@@ -114,20 +114,6 @@ fi
 
 # -- seed ----------------------------------------------------------------------
 
-# The MAC address is kept across rebuilds so the guest keeps its address.
-config="$vm_dir/config.json"
-mac_address=$(python3 - "$config" <<'PY'
-import json, os, sys
-try:
-    print(json.load(open(sys.argv[1]))["macAddress"])
-except (OSError, KeyError, ValueError):
-    # Locally administered, unicast.
-    octets = bytearray(os.urandom(6))
-    octets[0] = (octets[0] & 0xFC) | 0x02
-    print(":".join(f"{b:02x}" for b in octets))
-PY
-)
-
 log "packing provisioning payload"
 payload="$cache_dir/payload.tar.gz"
 COPYFILE_DISABLE=1 tar --no-xattrs -czf "$payload" -C "$repo_root" \
@@ -139,7 +125,6 @@ seed_dir=$(mktemp -d "$cache_dir/seed.XXXXXX")
 python3 "$image_dir/render-seed.py" "$seed_dir" \
     --payload "$payload" \
     --secrets "$secrets_dir" \
-    --mac "$mac_address" \
     --env "PAL_MIN_DEBIAN_VERSION=$min_debian" \
     --env "PAL_GRANT_SUDO=$grant_sudo" \
     --env "PAL_TIMEZONE=$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')"
@@ -152,16 +137,18 @@ rm -rf "$seed_dir"
 
 # -- VM configuration ------------------------------------------------------------
 
+# The guest has no network interface; palvmd forwards its SSH, API, and VNC
+# ports to 127.0.0.1 on this Mac (see PortForward.defaults in host/).
+config="$vm_dir/config.json"
 cat >"$config" <<JSON
 {
-  "version": 1,
+  "version": 2,
   "cpuCount": $cpus,
   "memorySizeMiB": $memory_mib,
   "diskImage": "disk.img",
   "seedImage": "seed.iso",
   "efiVariableStore": "efi-vars.fd",
   "machineIdentifier": "machine-id",
-  "macAddress": "$mac_address",
   "consoleLog": "console.log"
 }
 JSON
