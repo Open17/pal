@@ -27,10 +27,10 @@ operator_display = 1             # your remote-control display, :1
 first_bot_display = 10           # bots get :10, :11, ...
 vnc_internal_base_port = 15900   # Xvnc on localhost
 vnc_public_base_port = 5900      # proxied for viewers (5901 = :1, 5910 = :10)
-vnc_bind_host = "0.0.0.0"
+vnc_bind_host = "127.0.0.1"   # reached from the Mac through palvmd
 
 [api]
-host = "0.0.0.0"
+host = "127.0.0.1"               # reached from the Mac through palvmd
 port = 8765
 
 [messaging]

@@ -130,12 +130,12 @@ class DisplaySettings:
     # proxies it on bind_host:(public_base + N) and wakes the display on connect.
     vnc_internal_base_port: int = 15900
     vnc_public_base_port: int = 5900
-    vnc_bind_host: str = "0.0.0.0"
+    vnc_bind_host: str = "127.0.0.1"
 
 
 @dataclass(frozen=True)
 class ApiSettings:
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8765
 
 
