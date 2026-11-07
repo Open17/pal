@@ -18,6 +18,9 @@ password_file=${PAL_VNC_PASSWORD_FILE:-$HOME/.config/pal/secrets/vnc-passwd}
 runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 bus_file="$runtime_dir/pal-display-$number.bus"
 
+# Clipboard sharing is off: a viewer would otherwise push the host's
+# clipboard into the VM whenever it changes.
+
 # A reboot or crash can leave a stale lock behind; remove it only when the
 # process that owned it is gone.
 lock="/tmp/.X$number-lock"
@@ -36,6 +39,9 @@ Xvnc "$display" \
     -SecurityTypes VncAuth \
     -PasswordFile "$password_file" \
     -AlwaysShared \
+    -AcceptCutText=0 \
+    -SendCutText=0 \
+    -SendPrimary=0 \
     -AcceptSetDesktopSize \
     -desktop "Pal - $owner" \
     -nolisten tcp &
