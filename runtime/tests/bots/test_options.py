@@ -54,6 +54,8 @@ def test_options_for_a_bot(tmp_path: Path) -> None:
     assert "`atlas`" not in prompt.split("# Your team")[1].split("# Messages")[0]
     assert "falls asleep after 8 idle minutes" in prompt
     assert "`pal-open <program> [args]`" in prompt
+    assert "`sudo` works without a password" in prompt
+    assert "not the user's own computer" in prompt
     assert options.env["PAL_DISPLAY_OWNER"] == "atlas"
 
 
