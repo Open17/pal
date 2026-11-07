@@ -12,10 +12,19 @@ apt_install \
 # Never start a graphical login on the VM's own (nonexistent) console.
 systemctl set-default multi-user.target
 
-# Desktop defaults for every display.
-install -d /etc/xdg/xfce4/xfconf/xfce-perchannel-xml
-install -m 0644 "$PAL_SRC"/guest/system/xfce/xfconf/xfce-perchannel-xml/*.xml \
-    /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/
+# Pal's desktop settings are applied per session by pal-desktop-defaults.
+# Earlier guests replaced the packaged xfconf defaults, which removed the
+# default session definition; restore the packaged files if so.
+xfconf_dir=/etc/xdg/xfce4/xfconf/xfce-perchannel-xml
+for file in "$xfconf_dir"/*.xml; do
+    [[ -f $file ]] && grep -q "Pal defaults" "$file" || continue
+    package=$(dpkg -S "$file" 2>/dev/null | cut -d: -f1 || true)
+    rm -f "$file"
+    if [[ -n $package ]]; then
+        log "restoring $file from $package"
+        apt-get install -y --reinstall -o Dpkg::Options::=--force-confmiss "$package"
+    fi
+done
 
 # Screen lockers would lock bots out of their own displays.
 apt-get purge -y light-locker xfce4-screensaver xscreensaver 2>/dev/null || true

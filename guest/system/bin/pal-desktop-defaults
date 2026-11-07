@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Apply Pal's desktop settings for the current session.
+#
+# Settings are stored as per-user values, which override single properties of
+# the packaged defaults instead of replacing whole channels. Needs DISPLAY and
+# the session bus; run from pal-display-session before the desktop starts.
+set -uo pipefail
+
+# set CHANNEL PROPERTY TYPE VALUE
+set_property() {
+    xfconf-query -c "$1" -p "$2" -s "$4" 2>/dev/null ||
+        xfconf-query -c "$1" -p "$2" -n -t "$3" -s "$4"
+}
+
+# Save each display's session so session-aware applications reopen.
+set_property xfce4-session /general/SaveOnExit bool true
+set_property xfce4-session /general/PromptOnLogout bool false
+# Suspending from a desktop would suspend the whole VM.
+set_property xfce4-session /shutdown/ShowSuspend bool false
+set_property xfce4-session /shutdown/ShowHibernate bool false
+
+# Displays are virtual and must never blank, sleep, or lock.
+set_property xfce4-power-manager /xfce4-power-manager/dpms-enabled bool false
+set_property xfce4-power-manager /xfce4-power-manager/blank-on-ac int 0
+set_property xfce4-power-manager /xfce4-power-manager/lock-screen-suspend-hibernate bool false
+
+# Crisp text for screenshots and remote viewing.
+set_property xsettings /Xft/Antialias int 1
+set_property xsettings /Xft/HintStyle string hintslight
+set_property xsettings /Xft/RGBA string rgb

@@ -130,7 +130,7 @@ PY
 
 log "packing provisioning payload"
 payload="$cache_dir/payload.tar.gz"
-COPYFILE_DISABLE=1 tar -czf "$payload" -C "$repo_root" \
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$payload" -C "$repo_root" \
     --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' \
     --exclude '.ruff_cache' --exclude '*.egg-info' --exclude '.DS_Store' \
     README.md docs config runtime guest
