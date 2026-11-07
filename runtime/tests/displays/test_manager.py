@@ -157,3 +157,18 @@ async def test_state_changes_are_published(tmp_path: Path, backend, clock) -> No
         await manager.ensure_awake("atlas")
         states = [(await events.get()).data["display"]["state"] for _ in range(2)]
     assert states == ["starting", "running"]
+
+
+async def test_display_that_ended_on_its_own_is_restarted(tmp_path: Path, backend, clock) -> None:
+    manager = make_manager(tmp_path, backend, clock)
+    await manager.ensure_awake("atlas")
+    backend.states["atlas"] = "stopped"  # the desktop session was logged out
+    await manager.refresh()
+    assert manager.get("atlas").state == "stopped"
+
+    backend.states["scout"] = "failed"
+    await manager.ensure_awake("scout")
+    backend.states["scout"] = "stopped"
+    display = await manager.ensure_awake("scout")
+    assert display.state == "running"
+    assert backend.calls.count(("start", "scout")) == 2
