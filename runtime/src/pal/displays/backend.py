@@ -31,12 +31,16 @@ class DisplayBackend(Protocol):
 class SystemdDisplayBackend:
     """Runs each display as the user unit ``pal-display@<owner>.service``.
 
-    The unit starts Xvnc and an xfce4 session inside one cgroup. Sleeping a
-    display freezes that cgroup: every process stops using CPU but keeps its
-    memory, so windows are exactly where they were when it thaws.
+    The unit starts Xvnc and an xfce4 session in the slice
+    ``pal-display-<owner>.slice``, which also holds every program launched
+    onto the display with ``pal-open``. Sleeping a display freezes the slice:
+    every process stops using CPU but keeps its memory, so windows are exactly
+    where they were when it thaws. Stopping the slice closes the display and
+    everything on it.
     """
 
     UNIT_TEMPLATE = "pal-display@{owner}.service"
+    SLICE_TEMPLATE = "pal-display-{owner}.slice"
 
     def __init__(self, settings: DisplaySettings, env_dir: Path) -> None:
         self.settings = settings
@@ -44,6 +48,9 @@ class SystemdDisplayBackend:
 
     def unit(self, display: Display) -> str:
         return self.UNIT_TEMPLATE.format(owner=display.owner)
+
+    def slice(self, display: Display) -> str:
+        return self.SLICE_TEMPLATE.format(owner=display.owner)
 
     def write_environment(self, display: Display) -> Path:
         """Write the per-display settings the unit reads via ``EnvironmentFile``."""
@@ -64,20 +71,26 @@ class SystemdDisplayBackend:
         await self._systemctl("start", self.unit(display))
 
     async def stop(self, display: Display) -> None:
-        await self._systemctl("stop", self.unit(display))
+        await self._systemctl("stop", self.slice(display))
 
     async def freeze(self, display: Display) -> None:
-        await self._systemctl("freeze", self.unit(display))
+        await self._systemctl("freeze", self.slice(display))
 
     async def thaw(self, display: Display) -> None:
-        await self._systemctl("thaw", self.unit(display))
+        await self._systemctl("thaw", self.slice(display))
 
     async def probe(self, display: Display) -> DisplayState:
         output = await self._systemctl(
-            "show", "--property=ActiveState,FreezerState", self.unit(display), check=False
+            "show",
+            "--property=ActiveState,FreezerState",
+            self.unit(display),
+            self.slice(display),
+            check=False,
         )
-        props = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
-        active, freezer = props.get("ActiveState"), props.get("FreezerState")
+        # One block of properties per unit, separated by a blank line.
+        unit_block, _, slice_block = output.partition("\n\n")
+        active = _properties(unit_block).get("ActiveState")
+        freezer = _properties(slice_block).get("FreezerState")
         if active == "active":
             return "sleeping" if freezer in ("frozen", "freezing") else "running"
         if active == "activating":
@@ -99,6 +112,10 @@ class SystemdDisplayBackend:
             message = stderr.decode().strip() or f"exit status {process.returncode}"
             raise DisplayBackendError(f"systemctl {' '.join(args)}: {message}")
         return stdout.decode()
+
+
+def _properties(block: str) -> dict[str, str]:
+    return dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
 
 
 class InMemoryDisplayBackend:

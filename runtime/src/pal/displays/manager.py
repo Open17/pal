@@ -102,7 +102,7 @@ class DisplayManager:
     def environment(self, owner: str) -> dict[str, str]:
         """Environment variables that point programs at the owner's display."""
 
-        return {"DISPLAY": self.get(owner).name}
+        return {"DISPLAY": self.get(owner).name, "PAL_DISPLAY_OWNER": owner}
 
     # -- lifecycle -------------------------------------------------------------
 
