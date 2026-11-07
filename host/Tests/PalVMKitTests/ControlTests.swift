@@ -5,7 +5,8 @@ import Testing
 @Suite struct ControlTests {
     @Test func protocolRoundTrip() throws {
         let response = ControlResponse(
-            ok: true, state: .running, address: "192.168.64.7", pid: 42,
+            ok: true, state: .running,
+            forwardedPorts: [PortForward(name: "api", hostPort: 8765, guestPort: 8765)], pid: 42,
             startedAt: Date(timeIntervalSince1970: 1_800_000_000)
         )
         let line = try ControlCoding.line(response)
