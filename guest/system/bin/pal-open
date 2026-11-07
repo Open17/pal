@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Launch a graphical program onto your Pal display.
+#
+#   pal-open firefox-esr https://example.org
+#
+# The program runs in the display's slice instead of as a child of the
+# calling shell, so it sleeps and wakes with the display and stays open when
+# the shell — or the Pal runtime — exits or restarts.
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+    echo "usage: pal-open COMMAND [ARGS...]" >&2
+    exit 2
+fi
+owner=${PAL_DISPLAY_OWNER:-${PAL_BOT_ID:-}}
+[[ -n $owner ]] || { echo "pal-open: PAL_BOT_ID is not set" >&2; exit 2; }
+display=${DISPLAY:?pal-open: DISPLAY is not set}
+number=${display#:}
+number=${number%%.*}
+
+environment=(--setenv=DISPLAY="$display" --setenv=PAL_DISPLAY_OWNER="$owner")
+bus_file="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pal-display-$number.bus"
+if [[ -r $bus_file ]]; then
+    environment+=(--setenv=DBUS_SESSION_BUS_ADDRESS="$(<"$bus_file")")
+fi
+
+name=$(basename -- "$1")
+name=${name//[^a-zA-Z0-9_.-]/-}
+name=${name:0:40}
+exec systemd-run --user --quiet --collect --same-dir \
+    --slice="pal-display-$owner.slice" \
+    --unit="pal-app-$owner-$name-$(date +%s%N)" \
+    --property=Type=exec \
+    "${environment[@]}" \
+    -- "$@"

@@ -34,8 +34,9 @@ class DisplayTools(ToolProvider):
             except DisplayBackendError as exc:
                 return error_result(f"Could not start your display: {exc}")
             return text_result(
-                f"Display {display.name} is awake. Run graphical programs with "
-                f"DISPLAY={display.name} (already set in your shell)."
+                f"Display {display.name} is awake. Launch graphical programs with "
+                "`pal-open <program> [args]` so they stay open with your display "
+                f"(DISPLAY={display.name} is already set in your shell)."
             )
 
         @tool("display_status", "Show the state of your display.", {})

@@ -53,6 +53,8 @@ def test_options_for_a_bot(tmp_path: Path) -> None:
     assert "- `scout` — Scout (Researcher)" in prompt
     assert "`atlas`" not in prompt.split("# Your team")[1].split("# Messages")[0]
     assert "falls asleep after 8 idle minutes" in prompt
+    assert "`pal-open <program> [args]`" in prompt
+    assert options.env["PAL_DISPLAY_OWNER"] == "atlas"
 
 
 async def test_display_tools_wake_the_display(tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ install -m 0755 "$PAL_SRC"/guest/system/bin/* "$PAL_ROOT/bin/"
 "$PAL_VENV/bin/pip" install --quiet --upgrade pip
 "$PAL_VENV/bin/pip" install --quiet --upgrade "$PAL_SRC/runtime"
 ln -sf "$PAL_VENV/bin/pal" /usr/local/bin/pal
+ln -sf "$PAL_ROOT/bin/pal-open" /usr/local/bin/pal-open
 
 # The agent SDK ships its own CLI. Expose it so `claude login` and
 # `claude setup-token` can be run inside the VM.
