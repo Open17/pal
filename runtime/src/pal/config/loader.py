@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from .models import (
+    DISPLAY_BACKENDS,
     PERMISSION_MODES,
     AgentSettings,
     ApiSettings,
@@ -55,6 +56,8 @@ def load_config(config_dir: str | Path | None = None) -> PalConfig:
     if agent.permission_mode not in PERMISSION_MODES:
         raise ConfigError(f"[agent] permission_mode must be one of {', '.join(PERMISSION_MODES)}")
     displays = _load_section(DisplaySettings, raw.get("displays", {}), "displays")
+    if displays.backend not in DISPLAY_BACKENDS:
+        raise ConfigError(f"[displays] backend must be one of {', '.join(DISPLAY_BACKENDS)}")
     if displays.idle_timeout_seconds <= 0:
         raise ConfigError("[displays] idle_timeout_seconds must be positive")
     api = _load_section(ApiSettings, raw.get("api", {}), "api")

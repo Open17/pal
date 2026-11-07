@@ -20,6 +20,9 @@ PERMISSION_MODES: tuple[str, ...] = get_args(PermissionMode)
 
 ThinkingDisplay = Literal["summarized", "omitted"]
 
+DisplayBackendName = Literal["systemd", "simulated"]
+DISPLAY_BACKENDS: tuple[str, ...] = get_args(DisplayBackendName)
+
 DEFAULT_MODEL = "claude-sonnet-5-5"
 DEFAULT_EFFORT: Effort = "high"
 
@@ -116,7 +119,7 @@ class AgentSettings:
 class DisplaySettings:
     """Per-bot X displays served over VNC."""
 
-    backend: Literal["systemd", "noop"] = "systemd"
+    backend: DisplayBackendName = "systemd"
     idle_timeout_seconds: int = 8 * 60
     check_interval_seconds: int = 15
     geometry: str = "1920x1080"
