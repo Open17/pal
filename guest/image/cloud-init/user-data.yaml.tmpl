@@ -1,0 +1,51 @@
+#cloud-config
+# Pal guest seed, rendered by guest/image/render-seed.py. Placeholders are
+# filled in at build time.
+
+hostname: pal
+preserve_hostname: false
+
+users:
+  - name: pal
+    gecos: Pal
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+ssh_pwauth: false
+disable_root: true
+
+# Grow the root partition to the full virtual disk on first boot.
+growpart:
+  mode: auto
+  devices: ["/"]
+resize_rootfs: true
+
+# Everything provisioning needs is staged under /var/lib/pal-provision as
+# root; the provisioning scripts install it with the right ownership.
+write_files:
+  - path: /var/lib/pal-provision/payload.tar.gz
+    encoding: b64
+    permissions: "0600"
+    content: ${payload_b64}
+  - path: /var/lib/pal-provision/provision.env
+    permissions: "0600"
+    content: |
+${provision_env}
+  - path: /var/lib/pal-provision/secrets/api-token
+    permissions: "0600"
+    content: ${api_token}
+  - path: /var/lib/pal-provision/secrets/vnc-password
+    permissions: "0600"
+    content: ${vnc_password}
+  - path: /var/lib/pal-provision/secrets/oauth-token
+    permissions: "0600"
+    content: ${oauth_token}
+
+runcmd:
+  - [mkdir, -p, /opt/pal/src]
+  - [tar, -xzf, /var/lib/pal-provision/payload.tar.gz, -C, /opt/pal/src]
+  - [/opt/pal/src/guest/provision/provision.sh]
+
+final_message: "Pal guest ready after $$UPTIME seconds"
