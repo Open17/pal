@@ -23,6 +23,7 @@ display.
 
 ## Documentation
 
+- [Getting started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
 - [Contributing and branching](docs/contributing.md)
 
