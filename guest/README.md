@@ -8,8 +8,7 @@ guest/
   provision/    first-boot provisioning that runs inside the VM
   system/       files installed into the VM
     systemd/user/   pal-runtime.service, pal-display@.service
-    bin/            pal-display-session, pal-display-save
-    xfce/xfconf/    desktop defaults (session saving, no blanking)
+    bin/            pal-display-session, pal-display-save, pal-desktop-defaults
 ```
 
 ## Inside the VM

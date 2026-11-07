@@ -58,5 +58,6 @@ xset s off -dpms 2>/dev/null || true
 # stop hook can ask this session to save itself.
 exec dbus-run-session -- bash -c '
     printf "%s\n" "$DBUS_SESSION_BUS_ADDRESS" >"$1"
+    /opt/pal/bin/pal-desktop-defaults || true
     exec xfce4-session
 ' pal-display "$bus_file"
