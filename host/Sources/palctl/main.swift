@@ -124,10 +124,17 @@ func status() {
 func ssh(_ extra: [String]) -> Never {
     guard let address = client.status()?.address else { fail("the VM is not running or has no address yet") }
     let knownHosts = paths.vmDirectory.appendingPathComponent("known_hosts").path
+    // Ignore the user's ssh config and forward nothing: the VM must never get
+    // the host's agent, keys, X server, or ports.
     let argv = [
-        "/usr/bin/ssh", "-i", paths.sshKey.path,
+        "/usr/bin/ssh", "-F", "/dev/null", "-i", paths.sshKey.path,
+        "-o", "IdentitiesOnly=yes",
         "-o", "UserKnownHostsFile=\(knownHosts)",
         "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ForwardAgent=no",
+        "-o", "ForwardX11=no",
+        "-o", "ClearAllForwardings=yes",
+        "-o", "PermitLocalCommand=no",
         "pal@\(address)",
     ] + extra
     let cArgs = argv.map { strdup($0) } + [nil]
