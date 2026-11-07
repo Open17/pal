@@ -114,29 +114,7 @@ fi
 
 # -- seed ----------------------------------------------------------------------
 
-log "packing provisioning payload"
-payload="$cache_dir/payload.tar.gz"
-COPYFILE_DISABLE=1 tar -czf "$payload" -C "$repo_root" \
-    --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' \
-    --exclude '.ruff_cache' --exclude '*.egg-info' --exclude '.DS_Store' \
-    README.md docs config runtime guest
-
-seed_dir=$(mktemp -d "$cache_dir/seed.XXXXXX")
-python3 "$image_dir/render-seed.py" "$seed_dir" \
-    --payload "$payload" \
-    --secrets "$secrets_dir" \
-    --env "PAL_MIN_DEBIAN_VERSION=$min_debian" \
-    --env "PAL_GRANT_SUDO=$grant_sudo" \
-    --env "PAL_TIMEZONE=$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')"
-
-log "writing cloud-init seed"
-rm -f "$vm_dir/seed.iso"
-hdiutil makehybrid -quiet -iso -joliet -default-volume-name cidata \
-    -o "$vm_dir/seed.iso" "$seed_dir"
-rm -rf "$seed_dir"
-
-# -- VM configuration ------------------------------------------------------------
-
+# The MAC address is kept across rebuilds so the guest keeps its address.
 config="$vm_dir/config.json"
 mac_address=$(python3 - "$config" <<'PY'
 import json, os, sys
@@ -149,6 +127,31 @@ except (OSError, KeyError, ValueError):
     print(":".join(f"{b:02x}" for b in octets))
 PY
 )
+
+log "packing provisioning payload"
+payload="$cache_dir/payload.tar.gz"
+COPYFILE_DISABLE=1 tar -czf "$payload" -C "$repo_root" \
+    --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' \
+    --exclude '.ruff_cache' --exclude '*.egg-info' --exclude '.DS_Store' \
+    README.md docs config runtime guest
+
+seed_dir=$(mktemp -d "$cache_dir/seed.XXXXXX")
+python3 "$image_dir/render-seed.py" "$seed_dir" \
+    --payload "$payload" \
+    --secrets "$secrets_dir" \
+    --mac "$mac_address" \
+    --env "PAL_MIN_DEBIAN_VERSION=$min_debian" \
+    --env "PAL_GRANT_SUDO=$grant_sudo" \
+    --env "PAL_TIMEZONE=$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')"
+
+log "writing cloud-init seed"
+rm -f "$vm_dir/seed.iso"
+hdiutil makehybrid -quiet -iso -joliet -default-volume-name cidata \
+    -o "$vm_dir/seed.iso" "$seed_dir"
+rm -rf "$seed_dir"
+
+# -- VM configuration ------------------------------------------------------------
+
 cat >"$config" <<JSON
 {
   "version": 1,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the cloud-init seed files for the Pal guest.
 
-Usage: render-seed.py OUTPUT_DIR --payload FILE --secrets DIR [--env KEY=VALUE ...]
+Usage: render-seed.py OUTPUT_DIR --payload FILE --secrets DIR --mac MAC [--env KEY=VALUE ...]
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--payload", type=Path, required=True)
     parser.add_argument("--secrets", type=Path, required=True)
+    parser.add_argument("--mac", required=True, help="the VM's MAC address")
     parser.add_argument("--env", action="append", default=[], metavar="KEY=VALUE")
     args = parser.parse_args()
 
@@ -49,9 +50,10 @@ def main() -> None:
         "vnc_password": json.dumps(read_secret(args.secrets, "vnc-password")),
         "oauth_token": json.dumps(read_secret(args.secrets, "oauth-token", required=False)),
         "instance_id": f"pal-{uuid.uuid4()}",
+        "mac_address": args.mac.lower(),
     }
     args.output.mkdir(parents=True, exist_ok=True)
-    for name in ("user-data", "meta-data"):
+    for name in ("user-data", "meta-data", "network-config"):
         template = string.Template((HERE / "cloud-init" / f"{name}.yaml.tmpl").read_text())
         (args.output / name).write_text(template.substitute(values))
 
