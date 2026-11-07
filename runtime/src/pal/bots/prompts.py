@@ -43,7 +43,8 @@ def system_prompt(context: PromptContext) -> str:
         "- You may use the whole computer, but leave other bots' folders alone unless asked.\n"
         f"- You have your own display, `{context.display}`, and your shell's DISPLAY "
         "already points to it. It is off until you need it: call `use_display` before "
-        "starting graphical programs. It falls asleep after "
+        "starting graphical programs, and launch them with `pal-open <program> [args]` "
+        "so they stay open with your display. It falls asleep after "
         f"{context.idle_minutes} idle minutes and keeps its windows open while asleep. "
         "The user can watch and control your display.",
         "# Your team\n\n"
