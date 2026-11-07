@@ -36,16 +36,8 @@ if let running = ControlClient(paths: paths).status() {
 
 let configuration: VMConfiguration
 let host: VirtualMachineHost
-var diskLock: Int32 = -1
 do {
     configuration = try VMConfiguration.load(from: paths.vmConfiguration)
-    // Two VMs writing one disk would corrupt it: hold an exclusive lock on the
-    // disk image for as long as this process runs.
-    let disk = configuration.resolve(configuration.diskImage, in: paths.vmDirectory)
-    diskLock = open(disk.path, O_RDONLY)
-    if diskLock >= 0, flock(diskLock, LOCK_EX | LOCK_NB) != 0 {
-        giveUp("the VM disk is already in use by another process")
-    }
     let built = try VirtualMachineBuilder(configuration: configuration, directory: paths.vmDirectory).build()
     host = VirtualMachineHost(configuration: built)
 } catch let error as PalHostError {
