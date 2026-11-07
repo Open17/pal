@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Pal defaults: save each display's session so its windows come back. -->
+<channel name="xfce4-session" version="1.0">
+  <property name="general" type="empty">
+    <property name="SaveOnExit" type="bool" value="true"/>
+    <property name="PromptOnLogout" type="bool" value="false"/>
+  </property>
+  <property name="shutdown" type="empty">
+    <!-- Suspending from a desktop would suspend the whole VM. -->
+    <property name="ShowHibernate" type="bool" value="false"/>
+    <property name="ShowSuspend" type="bool" value="false"/>
+  </property>
+</channel>

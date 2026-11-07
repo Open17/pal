@@ -1,0 +1,18 @@
+[Unit]
+Description=Pal runtime (bots, memory, displays, API)
+Documentation=file:///opt/pal/src/docs/architecture.md
+
+[Service]
+Type=simple
+Environment=PAL_CONFIG_DIR=%h/.config/pal
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/pal/venv/bin/pal serve
+Restart=on-failure
+RestartSec=5
+# Displays run in their own units, so restarting the runtime never closes a
+# bot's windows.
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

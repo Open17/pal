@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Start one Pal display: an Xvnc server and an xfce4 session on it.
+#
+# Reads its settings from the environment (written by the runtime):
+#   PAL_DISPLAY_NUMBER    X display number, e.g. 10 for :10
+#   PAL_VNC_PORT          localhost port for the VNC server
+#   PAL_DISPLAY_GEOMETRY  e.g. 1920x1080
+#   PAL_DISPLAY_DEPTH     e.g. 24
+#   PAL_DISPLAY_OWNER     bot id or "operator"
+set -euo pipefail
+
+: "${PAL_DISPLAY_NUMBER:?PAL_DISPLAY_NUMBER is not set}"
+: "${PAL_VNC_PORT:?PAL_VNC_PORT is not set}"
+number=$PAL_DISPLAY_NUMBER
+display=":$number"
+owner=${PAL_DISPLAY_OWNER:-display$number}
+password_file=${PAL_VNC_PASSWORD_FILE:-$HOME/.config/pal/secrets/vnc-passwd}
+runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+bus_file="$runtime_dir/pal-display-$number.bus"
+
+# A reboot or crash can leave a stale lock behind; remove it only when the
+# process that owned it is gone.
+lock="/tmp/.X$number-lock"
+if [[ -f $lock ]]; then
+    pid=$(tr -d ' ' <"$lock" || true)
+    if [[ -z $pid ]] || ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$lock" "/tmp/.X11-unix/X$number"
+    fi
+fi
+
+Xvnc "$display" \
+    -geometry "${PAL_DISPLAY_GEOMETRY:-1920x1080}" \
+    -depth "${PAL_DISPLAY_DEPTH:-24}" \
+    -rfbport "$PAL_VNC_PORT" \
+    -localhost \
+    -SecurityTypes VncAuth \
+    -PasswordFile "$password_file" \
+    -AlwaysShared \
+    -AcceptSetDesktopSize \
+    -desktop "Pal - $owner" \
+    -nolisten tcp &
+
+for _ in $(seq 1 100); do
+    [[ -S /tmp/.X11-unix/X$number ]] && break
+    sleep 0.1
+done
+[[ -S /tmp/.X11-unix/X$number ]] || { echo "Xvnc did not start on $display" >&2; exit 1; }
+
+export DISPLAY=$display
+export XDG_SESSION_TYPE=x11
+export XDG_CURRENT_DESKTOP=XFCE
+export PAL_DISPLAY_OWNER=$owner
+
+# A display is a workspace for an agent: never blank or lock it.
+xset s off -dpms 2>/dev/null || true
+
+# Each display gets a private session bus. Its address is recorded so the
+# stop hook can ask this session to save itself.
+exec dbus-run-session -- bash -c '
+    printf "%s\n" "$DBUS_SESSION_BUS_ADDRESS" >"$1"
+    exec xfce4-session
+' pal-display "$bus_file"
