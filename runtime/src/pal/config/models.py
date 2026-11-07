@@ -60,7 +60,9 @@ class ModelSettings:
     model: str = DEFAULT_MODEL
     effort: Effort = DEFAULT_EFFORT
 
-    def with_overrides(self, model: str | None = None, effort: Effort | None = None) -> ModelSettings:
+    def with_overrides(
+        self, model: str | None = None, effort: Effort | None = None
+    ) -> ModelSettings:
         return replace(self, model=model or self.model, effort=effort or self.effort)
 
 

@@ -53,9 +53,7 @@ def load_config(config_dir: str | Path | None = None) -> PalConfig:
     model = _load_model(raw.get("model", {}))
     agent = _load_section(AgentSettings, raw.get("agent", {}), "agent")
     if agent.permission_mode not in PERMISSION_MODES:
-        raise ConfigError(
-            f"[agent] permission_mode must be one of {', '.join(PERMISSION_MODES)}"
-        )
+        raise ConfigError(f"[agent] permission_mode must be one of {', '.join(PERMISSION_MODES)}")
     displays = _load_section(DisplaySettings, raw.get("displays", {}), "displays")
     if displays.idle_timeout_seconds <= 0:
         raise ConfigError("[displays] idle_timeout_seconds must be positive")
