@@ -16,6 +16,11 @@ users:
 ssh_pwauth: false
 disable_root: true
 
+# The VM has no network interface, so waiting for one would only stall the
+# first boot. Provisioning masks the wait for later boots.
+bootcmd:
+  - [systemctl, mask, --now, systemd-networkd-wait-online.service]
+
 # Grow the root partition to the full virtual disk on first boot.
 growpart:
   mode: auto

@@ -1,0 +1,18 @@
+# The guest agent is the VM's only link to the host and to the internet:
+# the VM has no network interface. See guest/agent/pal_guest_agent.py.
+
+[Unit]
+Description=Pal guest agent (host link and internet access)
+Before=network-online.target nss-lookup.target
+After=systemd-modules-load.service
+# Stopping the agent would cut the VM off from the host until it reboots.
+RefuseManualStop=yes
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I /opt/pal/agent/pal_guest_agent.py
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

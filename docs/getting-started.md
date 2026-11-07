@@ -74,18 +74,19 @@ claude login
 systemctl --user restart pal-runtime
 ```
 
-The runtime API listens on port 8765 of the VM's address
-(`palctl address`). Requests need the token in
+The VM has no network interface of its own; `palvmd` makes its services
+available on this Mac's loopback interface only (`palctl status` lists them).
+The runtime API is at `http://127.0.0.1:8765`, and requests need the token in
 `~/Library/Application Support/Pal/vm/secrets/api-token`:
 
 ```sh
 curl -H "Authorization: Bearer $(cat ~/Library/Application\ Support/Pal/vm/secrets/api-token)" \
-    "http://$(palctl address):8765/v1/status"
+    http://127.0.0.1:8765/v1/status
 ```
 
 ## 6. Watch a bot's display
 
-Each bot has its own display, served over VNC on the VM's address:
+Each bot has its own display, served over VNC on `127.0.0.1`:
 
 | Display | Owner | VNC port |
 | --- | --- | --- |
@@ -94,6 +95,15 @@ Each bot has its own display, served over VNC on the VM's address:
 
 The VNC password is in `~/Library/Application Support/Pal/vm/secrets/vnc-password`.
 Connecting wakes the display if it is asleep; it stays awake while you watch.
+
+## What the bots can and cannot reach
+
+Bots are administrators of their own VM and can reach the public internet.
+They cannot reach your Mac, its files, its clipboard, or your local network:
+the VM has no network interface, and `palvmd` refuses any connection that is
+not to a public internet address. Refused attempts are logged in
+`~/Library/Logs/Pal/palvmd.log`. See
+[Security and isolation](architecture.md#security-and-isolation).
 
 ## Changing models
 

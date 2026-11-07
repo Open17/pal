@@ -10,14 +10,18 @@ let usage = """
     commands:
       start       turn the VM on (it keeps running in the background)
       stop        shut the VM down and keep it off
-      status      show whether the VM is running and its address
-      address     print the VM's IP address
+      status      show whether the VM is running and where to reach it
       ssh [ARGS]  open a shell in the VM as the pal user
       uninstall   stop the VM and remove the launchd agent
 
     options:
       --daemon PATH   palvmd executable (default: next to palctl)
     """
+
+/// Left-justify `text` to `width` characters.
+func pad(_ text: String, _ width: Int) -> String {
+    text.padding(toLength: max(width, text.count), withPad: " ", startingAt: 0)
+}
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
     FileHandle.standardError.write(Data("palctl: \(message)\n".utf8))
@@ -53,15 +57,6 @@ func wait(timeout: TimeInterval, until condition: () -> Bool) -> Bool {
     return condition()
 }
 
-func waitForAddress(timeout: TimeInterval) -> String? {
-    var address: String?
-    _ = wait(timeout: timeout) {
-        address = client.status()?.address
-        return address != nil
-    }
-    return address
-}
-
 func start() {
     guard FileManager.default.isExecutableFile(atPath: daemon.path) else {
         fail("palvmd not found at \(daemon.path); build it with host/scripts/build.sh")
@@ -82,10 +77,8 @@ func start() {
         fail("palvmd did not start; see \(paths.logDirectory.path)/palvmd.log")
     }
     print("VM started")
-    if let address = waitForAddress(timeout: 60) {
-        print("address: \(address)")
-    } else {
-        print("waiting for the guest network; run `palctl status` in a moment")
+    if let api = client.status()?.forwardedPorts?.first(where: { $0.name == "api" }) {
+        print("API: http://127.0.0.1:\(api.hostPort) (once the guest has booted)")
     }
 }
 
@@ -111,18 +104,25 @@ func status() {
         print("off")
         exit(3)
     }
-    print("state:   \(status.state?.rawValue ?? "unknown")")
-    print("address: \(status.address ?? "(waiting for network)")")
-    if let mac = status.macAddress { print("mac:     \(mac)") }
-    if let pid = status.pid { print("pid:     \(pid)") }
-    if let started = status.startedAt {
-        print("since:   \(ISO8601DateFormatter().string(from: started))")
+    print("state:        \(status.state?.rawValue ?? "unknown")")
+    for forward in status.forwardedPorts ?? [] where !forward.name.hasPrefix("vnc-") || forward.name == "vnc-operator" {
+        print("\(pad(forward.name + ":", 14))127.0.0.1:\(forward.hostPort)")
     }
-    if let error = status.error { print("error:   \(error)") }
+    let bots = (status.forwardedPorts ?? []).filter { $0.name.hasPrefix("vnc-") && $0.name != "vnc-operator" }
+    if let first = bots.first, let last = bots.last {
+        print("\(pad("vnc-bots:", 14))127.0.0.1:\(first.hostPort)-\(last.hostPort)")
+    }
+    if let pid = status.pid { print("pid:          \(pid)") }
+    if let started = status.startedAt {
+        print("since:        \(ISO8601DateFormatter().string(from: started))")
+    }
+    if let error = status.error { print("error:        \(error)") }
 }
 
 func ssh(_ extra: [String]) -> Never {
-    guard let address = client.status()?.address else { fail("the VM is not running or has no address yet") }
+    guard let forward = client.status()?.forwardedPorts?.first(where: { $0.name == "ssh" }) else {
+        fail("the VM is not running")
+    }
     let knownHosts = paths.vmDirectory.appendingPathComponent("known_hosts").path
     // Ignore the user's ssh config and forward nothing: the VM must never get
     // the host's agent, keys, X server, or ports.
@@ -135,7 +135,9 @@ func ssh(_ extra: [String]) -> Never {
         "-o", "ForwardX11=no",
         "-o", "ClearAllForwardings=yes",
         "-o", "PermitLocalCommand=no",
-        "pal@\(address)",
+        "-o", "HostKeyAlias=pal-vm",
+        "-p", String(forward.hostPort),
+        "pal@127.0.0.1",
     ] + extra
     let cArgs = argv.map { strdup($0) } + [nil]
     execv(argv[0], cArgs)
@@ -149,9 +151,6 @@ case "stop":
     stop()
 case "status":
     status()
-case "address":
-    guard let address = client.status()?.address else { fail("no address (is the VM running?)", code: 3) }
-    print(address)
 case "ssh":
     ssh(Array(arguments.dropFirst()))
 case "uninstall":

@@ -1,11 +1,3 @@
-# Pal guest network: DHCP on the NAT interface.
-#
-# The host finds the guest's address by MAC in its DHCP lease database, so
-# the guest must identify itself by MAC instead of the default DUID.
+# Pal guest network: the VM has no network interface. Its only link is the
+# guest agent's vsock channel to the host, set up during provisioning.
 version: 2
-ethernets:
-  primary:
-    match:
-      macaddress: "${mac_address}"
-    dhcp4: true
-    dhcp-identifier: mac
