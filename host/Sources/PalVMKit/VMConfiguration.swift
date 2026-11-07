@@ -39,6 +39,25 @@ public struct VMConfiguration: Codable, Equatable, Sendable {
         self.forwardedPorts = forwardedPorts
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case version, cpuCount, memorySizeMiB, diskImage, seedImage, efiVariableStore
+        case machineIdentifier, consoleLog, forwardedPorts
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        cpuCount = try container.decode(Int.self, forKey: .cpuCount)
+        memorySizeMiB = try container.decode(UInt64.self, forKey: .memorySizeMiB)
+        diskImage = try container.decode(String.self, forKey: .diskImage)
+        seedImage = try container.decodeIfPresent(String.self, forKey: .seedImage)
+        efiVariableStore = try container.decode(String.self, forKey: .efiVariableStore)
+        machineIdentifier = try container.decode(String.self, forKey: .machineIdentifier)
+        consoleLog = try container.decodeIfPresent(String.self, forKey: .consoleLog)
+        forwardedPorts = try container.decodeIfPresent([PortForward].self, forKey: .forwardedPorts)
+            ?? PortForward.defaults
+    }
+
     public static func load(from url: URL) throws -> VMConfiguration {
         let data: Data
         do {
