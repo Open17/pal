@@ -2,9 +2,11 @@ import Foundation
 
 /// The VM definition written by the image builder (`vm/config.json`).
 ///
-/// Paths are relative to the VM directory unless absolute.
+/// Paths are relative to the VM directory unless absolute. The guest has no
+/// network interface; `forwardedPorts` lists the guest services reachable on
+/// this Mac's loopback interface.
 public struct VMConfiguration: Codable, Equatable, Sendable {
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     public var version: Int
     public var cpuCount: Int
@@ -13,8 +15,8 @@ public struct VMConfiguration: Codable, Equatable, Sendable {
     public var seedImage: String?
     public var efiVariableStore: String
     public var machineIdentifier: String
-    public var macAddress: String
     public var consoleLog: String?
+    public var forwardedPorts: [PortForward]
 
     public init(
         cpuCount: Int = 4,
@@ -23,8 +25,8 @@ public struct VMConfiguration: Codable, Equatable, Sendable {
         seedImage: String? = "seed.iso",
         efiVariableStore: String = "efi-vars.fd",
         machineIdentifier: String = "machine-id",
-        macAddress: String,
-        consoleLog: String? = "console.log"
+        consoleLog: String? = "console.log",
+        forwardedPorts: [PortForward] = PortForward.defaults
     ) {
         self.version = Self.currentVersion
         self.cpuCount = cpuCount
@@ -33,8 +35,8 @@ public struct VMConfiguration: Codable, Equatable, Sendable {
         self.seedImage = seedImage
         self.efiVariableStore = efiVariableStore
         self.machineIdentifier = machineIdentifier
-        self.macAddress = macAddress
         self.consoleLog = consoleLog
+        self.forwardedPorts = forwardedPorts
     }
 
     public static func load(from url: URL) throws -> VMConfiguration {
@@ -63,7 +65,6 @@ public enum PalHostError: Error, CustomStringConvertible, Equatable {
     case missingConfiguration(String)
     case unsupportedConfiguration(version: Int)
     case missingDisk(String)
-    case invalidMACAddress(String)
     case invalidConfiguration(String)
     case notRunning
     case controlFailed(String)
@@ -74,11 +75,10 @@ public enum PalHostError: Error, CustomStringConvertible, Equatable {
         case .missingConfiguration(let path):
             return "no VM configuration at \(path); build the VM with guest/image/build-image.sh"
         case .unsupportedConfiguration(let version):
-            return "VM configuration version \(version) is not supported"
+            return "VM configuration version \(version) is not supported; rebuild it with "
+                + "guest/image/build-image.sh --refresh-seed"
         case .missingDisk(let path):
             return "no VM disk at \(path)"
-        case .invalidMACAddress(let value):
-            return "invalid MAC address \(value)"
         case .invalidConfiguration(let reason):
             return "invalid VM configuration: \(reason)"
         case .notRunning:

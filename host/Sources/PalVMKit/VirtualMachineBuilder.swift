@@ -3,9 +3,10 @@ import Virtualization
 
 /// Turns a `VMConfiguration` into a validated hypervisor configuration.
 ///
-/// The guest is deliberately minimal: EFI boot, virtio disk/network/entropy,
-/// a memory balloon, and a serial console. There is no graphics device; the
-/// desktop is served from inside the guest over VNC.
+/// The guest is deliberately minimal: EFI boot, a virtio disk, entropy, a
+/// memory balloon, a serial console, and a vsock device. There is no network
+/// interface — the guest reaches the internet only through palvmd's egress
+/// service — and no graphics device; the desktop is served over VNC.
 public struct VirtualMachineBuilder {
     public let configuration: VMConfiguration
     public let directory: URL
@@ -24,7 +25,8 @@ public struct VirtualMachineBuilder {
         vm.platform = try platform()
         vm.bootLoader = try bootLoader()
         vm.storageDevices = try storageDevices()
-        vm.networkDevices = [try networkDevice()]
+        vm.networkDevices = []
+        vm.socketDevices = [VZVirtioSocketDeviceConfiguration()]
         vm.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
         vm.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
         if let console = try serialConsole() {
@@ -98,16 +100,6 @@ public struct VirtualMachineBuilder {
             }
         }
         return devices
-    }
-
-    private func networkDevice() throws -> VZVirtioNetworkDeviceConfiguration {
-        guard let address = VZMACAddress(string: configuration.macAddress) else {
-            throw PalHostError.invalidMACAddress(configuration.macAddress)
-        }
-        let device = VZVirtioNetworkDeviceConfiguration()
-        device.attachment = VZNATNetworkDeviceAttachment()
-        device.macAddress = address
-        return device
     }
 
     private func serialConsole() throws -> VZVirtioConsoleDeviceSerialPortConfiguration? {

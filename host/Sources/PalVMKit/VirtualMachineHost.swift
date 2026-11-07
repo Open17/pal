@@ -10,18 +10,21 @@ public final class VirtualMachineHost: NSObject, VZVirtualMachineDelegate {
     public private(set) var state: State = .stopped
     public private(set) var startedAt: Date?
     public private(set) var lastError: String?
-    public let macAddress: String
 
     /// Called on the main queue when the guest has stopped for any reason.
     public var onStop: ((_ error: Error?) -> Void)?
 
     private let machine: VZVirtualMachine
 
-    public init(configuration: VZVirtualMachineConfiguration, macAddress: String) {
+    public init(configuration: VZVirtualMachineConfiguration) {
         self.machine = VZVirtualMachine(configuration: configuration, queue: .main)
-        self.macAddress = macAddress
         super.init()
         machine.delegate = self
+    }
+
+    /// The vsock device that carries all traffic to and from the guest.
+    public var socketDevice: VZVirtioSocketDevice? {
+        machine.socketDevices.first as? VZVirtioSocketDevice
     }
 
     public func start(completion: @escaping (Result<Void, Error>) -> Void) {

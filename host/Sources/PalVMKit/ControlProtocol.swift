@@ -21,8 +21,8 @@ public struct ControlRequest: Codable, Equatable, Sendable {
 public struct ControlResponse: Codable, Equatable, Sendable {
     public var ok: Bool
     public var state: VirtualMachineHost.State?
-    public var address: String?
-    public var macAddress: String?
+    /// Guest services reachable on 127.0.0.1 of this Mac.
+    public var forwardedPorts: [PortForward]?
     public var pid: Int32?
     public var startedAt: Date?
     public var error: String?
@@ -30,16 +30,14 @@ public struct ControlResponse: Codable, Equatable, Sendable {
     public init(
         ok: Bool,
         state: VirtualMachineHost.State? = nil,
-        address: String? = nil,
-        macAddress: String? = nil,
+        forwardedPorts: [PortForward]? = nil,
         pid: Int32? = nil,
         startedAt: Date? = nil,
         error: String? = nil
     ) {
         self.ok = ok
         self.state = state
-        self.address = address
-        self.macAddress = macAddress
+        self.forwardedPorts = forwardedPorts
         self.pid = pid
         self.startedAt = startedAt
         self.error = error
