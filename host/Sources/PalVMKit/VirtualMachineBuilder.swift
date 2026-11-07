@@ -4,7 +4,7 @@ import Virtualization
 /// Turns a `VMConfiguration` into a validated hypervisor configuration.
 ///
 /// The guest is deliberately minimal: EFI boot, a virtio disk, entropy, a
-/// memory balloon, a serial console, and a vsock device. There is no network
+/// serial console, and a vsock device. There is no network
 /// interface — the guest reaches the internet only through palvmd's egress
 /// service — and no graphics device; the desktop is served over VNC.
 public struct VirtualMachineBuilder {
@@ -28,7 +28,6 @@ public struct VirtualMachineBuilder {
         vm.networkDevices = []
         vm.socketDevices = [VZVirtioSocketDeviceConfiguration()]
         vm.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
-        vm.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
         if let console = try serialConsole() {
             vm.serialPorts = [console]
         }
