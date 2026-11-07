@@ -129,7 +129,8 @@ func ssh(_ extra: [String]) -> Never {
     let argv = [
         "/usr/bin/ssh", "-F", "/dev/null", "-i", paths.sshKey.path,
         "-o", "IdentitiesOnly=yes",
-        "-o", "UserKnownHostsFile=\(knownHosts)",
+        // Quoted: ssh splits option values on spaces ("Application Support").
+        "-o", "UserKnownHostsFile=\"\(knownHosts)\"",
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "ForwardAgent=no",
         "-o", "ForwardX11=no",
