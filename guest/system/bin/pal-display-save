@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Ask a display's xfce4 session to save itself and log out, so session-aware
+# applications reopen the next time the display starts.
+set -uo pipefail
+
+number=${PAL_DISPLAY_NUMBER:?PAL_DISPLAY_NUMBER is not set}
+runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+bus_file="$runtime_dir/pal-display-$number.bus"
+
+if [[ -r $bus_file ]]; then
+    DISPLAY=":$number" DBUS_SESSION_BUS_ADDRESS=$(<"$bus_file") \
+        timeout 15 xfce4-session-logout --logout || true
+    rm -f "$bus_file"
+fi
