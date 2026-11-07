@@ -104,19 +104,19 @@ func status() {
         print("off")
         exit(3)
     }
-    print("state:    \(status.state?.rawValue ?? "unknown")")
+    print("state:        \(status.state?.rawValue ?? "unknown")")
     for forward in status.forwardedPorts ?? [] where !forward.name.hasPrefix("vnc-") || forward.name == "vnc-operator" {
-        print("\(pad(forward.name + ":", 10))127.0.0.1:\(forward.hostPort)")
+        print("\(pad(forward.name + ":", 14))127.0.0.1:\(forward.hostPort)")
     }
     let bots = (status.forwardedPorts ?? []).filter { $0.name.hasPrefix("vnc-") && $0.name != "vnc-operator" }
     if let first = bots.first, let last = bots.last {
-        print("\(pad("vnc-bots:", 10))127.0.0.1:\(first.hostPort)-\(last.hostPort)")
+        print("\(pad("vnc-bots:", 14))127.0.0.1:\(first.hostPort)-\(last.hostPort)")
     }
-    if let pid = status.pid { print("pid:      \(pid)") }
+    if let pid = status.pid { print("pid:          \(pid)") }
     if let started = status.startedAt {
-        print("since:    \(ISO8601DateFormatter().string(from: started))")
+        print("since:        \(ISO8601DateFormatter().string(from: started))")
     }
-    if let error = status.error { print("error:    \(error)") }
+    if let error = status.error { print("error:        \(error)") }
 }
 
 func ssh(_ extra: [String]) -> Never {
