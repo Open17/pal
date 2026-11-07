@@ -1,0 +1,87 @@
+"""System prompt and message framing for bots."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+from pal.config import BotDefinition, PathSettings
+from pal.messaging import Message
+
+
+@dataclass(frozen=True)
+class PromptContext:
+    bot: BotDefinition
+    teammates: Sequence[BotDefinition]
+    paths: PathSettings
+    display: str
+    idle_minutes: int
+    memory_digest: str
+    tools: str
+
+
+def system_prompt(context: PromptContext) -> str:
+    """Instructions appended to the agent's default system prompt."""
+
+    bot = context.bot
+    role = f", the team's {bot.role.lower()}" if bot.role else ""
+    team_lines = "\n".join(
+        f"- `{mate.id}` — {mate.name}{f' ({mate.role})' if mate.role else ''}"
+        for mate in context.teammates
+    )
+    sections = [
+        f"# Who you are\n\nYou are {bot.name}{role}, one of the bots on the Pal team. "
+        "The user talks to you directly, and you work alongside your teammates."
+        + (f"\n\n{bot.persona}" if bot.persona else ""),
+        "# Your computer\n\n"
+        "You run on a Debian Linux computer with an xfce desktop that you share with "
+        "your teammates.\n"
+        f"- Your main folder is `{context.paths.bot_workspace(bot.id)}`. Keep your work "
+        "there.\n"
+        f"- `{context.paths.shared_workspace}` is shared with every teammate; use it to "
+        "hand files to each other.\n"
+        "- You may use the whole computer, but leave other bots' folders alone unless asked.\n"
+        f"- You have your own display, `{context.display}`, and your shell's DISPLAY "
+        "already points to it. It is off until you need it: call `use_display` before "
+        "starting graphical programs. It falls asleep after "
+        f"{context.idle_minutes} idle minutes and keeps its windows open while asleep. "
+        "The user can watch and control your display.",
+        "# Your team\n\n"
+        + (team_lines or "You currently have no teammates.")
+        + "\n\nUse `message_bot` to reach a teammate: `wait_for_reply=true` when you need "
+        "their answer to continue, `false` to hand something over and move on. Delegate "
+        "work a teammate is better suited for, but don't bounce tasks back and forth.",
+        "# Messages\n\n"
+        "Messages come from the user or from teammates. A teammate's message starts with "
+        "a bracketed header naming the sender and saying whether they are waiting. Unless "
+        "the header says otherwise, your final response is delivered to whoever sent the "
+        "message, so make it a complete answer.",
+        "# Memory\n\n"
+        "You have long-term memory that lasts across conversations and restarts: shared "
+        "team memory, visible to every bot, and your own private knowledge. Save things "
+        "worth keeping with `remember` (update an existing memory rather than adding a "
+        "duplicate), and search with `recall` before redoing work. Don't save things that "
+        "only matter for the current task.\n\n"
+        "Memory index when this session started:\n\n" + context.memory_digest,
+    ]
+    if context.tools:
+        sections.append("# Pal tools\n\n" + context.tools)
+    return "\n\n".join(sections)
+
+
+def frame_message(message: Message, sender_name: str) -> str:
+    """The prompt a bot sees for an incoming message."""
+
+    if message.kind == "chat":
+        return message.content
+    if message.kind == "request":
+        header = (
+            f"[Message from {sender_name} (`{message.sender}`). They are waiting for your "
+            "reply; your final response will be sent back to them.]"
+        )
+    else:
+        header = (
+            f"[Message from {sender_name} (`{message.sender}`). No reply expected; your final "
+            "response is not delivered. Use `message_bot` if you need to answer.]"
+        )
+    return f"{header}\n\n{message.content}"
