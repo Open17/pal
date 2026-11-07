@@ -112,6 +112,8 @@ class DisplayManager:
         display = self.get(owner)
         async with self._locks[owner]:
             display.last_activity = self._clock()
+            if display.is_live:
+                await self._reconcile(display)
             if display.state == "running":
                 return display
             try:
@@ -196,6 +198,20 @@ class DisplayManager:
                     log.warning("could not restore display %s: %s", display.name, exc)
         self._save_state()
 
+    async def refresh(self) -> None:
+        """Pick up displays whose session ended on its own (logout, crash)."""
+
+        for display in self.all():
+            if display.is_live and not self._locks[display.owner].locked():
+                async with self._locks[display.owner]:
+                    await self._reconcile(display)
+
+    async def _reconcile(self, display: Display) -> None:
+        actual = await self.backend.probe(display)
+        if actual in ("stopped", "failed"):
+            log.info("display %s (%s) ended on its own", display.name, display.owner)
+            self._set_state(display, actual)
+
     async def sleep_idle(self) -> list[str]:
         """Freeze every display that has been idle past the timeout."""
 
@@ -217,6 +233,7 @@ class DisplayManager:
         while True:
             await asyncio.sleep(self.settings.check_interval_seconds)
             try:
+                await self.refresh()
                 await self.sleep_idle()
             except Exception:
                 log.exception("display idle check failed")
