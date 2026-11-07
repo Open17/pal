@@ -68,7 +68,7 @@ async def test_displays_start_lazily(tmp_path: Path, backend, clock) -> None:
     assert backend.calls == [("start", "atlas")]
     await manager.ensure_awake("atlas")
     assert backend.calls == [("start", "atlas")]  # already running: nothing to do
-    assert manager.environment("atlas") == {"DISPLAY": ":10"}
+    assert manager.environment("atlas") == {"DISPLAY": ":10", "PAL_DISPLAY_OWNER": "atlas"}
 
 
 async def test_idle_displays_sleep_and_wake(tmp_path: Path, backend, clock) -> None:
