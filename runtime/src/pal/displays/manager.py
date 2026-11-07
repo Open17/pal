@@ -16,7 +16,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
-from pal.config import OPERATOR_ID, DisplaySettings
+from pal.config import BROWSER_ID, OPERATOR_ID, DisplaySettings
 from pal.log import get_logger
 from pal.messaging import EventBus, EventType
 
@@ -54,7 +54,7 @@ class DisplayManager:
     # -- registration ------------------------------------------------------
 
     def register(self, owners: Iterable[str]) -> None:
-        """Allocate displays for the operator and every given bot.
+        """Allocate displays for the operator, the shared browser, and every given bot.
 
         Numbers already recorded in the state file are kept, so a bot always
         gets the same display.
@@ -66,14 +66,15 @@ class DisplayManager:
         }
         self._was_live = {owner for owner, entry in saved.items() if entry.get("live")}
         numbers[OPERATOR_ID] = self.settings.operator_display
-        for owner in [OPERATOR_ID, *owners]:
+        numbers[BROWSER_ID] = self.settings.browser_display
+        for owner in [OPERATOR_ID, BROWSER_ID, *owners]:
             if owner not in numbers:
                 numbers[owner] = self._next_free_number(numbers.values())
             self._displays.setdefault(owner, self._make(owner, numbers[owner]))
         self._save_state()
 
     def _next_free_number(self, used: Iterable[int]) -> int:
-        taken = set(used) | {self.settings.operator_display}
+        taken = set(used) | {self.settings.operator_display, self.settings.browser_display}
         number = self.settings.first_bot_display
         while number in taken:
             number += 1

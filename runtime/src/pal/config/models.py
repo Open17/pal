@@ -30,8 +30,9 @@ BOT_ID_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 
 # Identifiers that have a fixed meaning elsewhere and cannot be used for bots.
 OPERATOR_ID = "operator"
+BROWSER_ID = "browser"
 USER_ID = "user"
-RESERVED_IDS = frozenset({OPERATOR_ID, USER_ID, "shared", "system", "all"})
+RESERVED_IDS = frozenset({OPERATOR_ID, BROWSER_ID, USER_ID, "shared", "system", "all"})
 
 
 class ConfigError(ValueError):
@@ -125,6 +126,8 @@ class DisplaySettings:
     geometry: str = "1280x800"
     depth: int = 24
     operator_display: int = 1
+    #: The shared browser every bot uses, so logins are shared.
+    browser_display: int = 2
     first_bot_display: int = 10
     # Xvnc for display :N listens on localhost:(internal_base + N); the runtime
     # proxies it on bind_host:(public_base + N) and wakes the display on connect.

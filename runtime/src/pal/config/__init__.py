@@ -2,6 +2,7 @@
 
 from .loader import CONFIG_DIR_ENV, default_config_dir, expand_path, load_bots, load_config
 from .models import (
+    BROWSER_ID,
     DEFAULT_EFFORT,
     DEFAULT_MODEL,
     EFFORT_LEVELS,
@@ -21,6 +22,7 @@ from .models import (
 )
 
 __all__ = [
+    "BROWSER_ID",
     "CONFIG_DIR_ENV",
     "DEFAULT_EFFORT",
     "DEFAULT_MODEL",
