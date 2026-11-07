@@ -122,7 +122,7 @@ class DisplaySettings:
     backend: DisplayBackendName = "systemd"
     idle_timeout_seconds: int = 8 * 60
     check_interval_seconds: int = 15
-    geometry: str = "1920x1080"
+    geometry: str = "1280x800"
     depth: int = 24
     operator_display: int = 1
     first_bot_display: int = 10

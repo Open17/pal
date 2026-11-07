@@ -4,7 +4,7 @@
 # Reads its settings from the environment (written by the runtime):
 #   PAL_DISPLAY_NUMBER    X display number, e.g. 10 for :10
 #   PAL_VNC_PORT          localhost port for the VNC server
-#   PAL_DISPLAY_GEOMETRY  e.g. 1920x1080
+#   PAL_DISPLAY_GEOMETRY  e.g. 1280x800
 #   PAL_DISPLAY_DEPTH     e.g. 24
 #   PAL_DISPLAY_OWNER     bot id or "operator"
 set -euo pipefail
@@ -32,7 +32,7 @@ if [[ -f $lock ]]; then
 fi
 
 Xvnc "$display" \
-    -geometry "${PAL_DISPLAY_GEOMETRY:-1920x1080}" \
+    -geometry "${PAL_DISPLAY_GEOMETRY:-1280x800}" \
     -depth "${PAL_DISPLAY_DEPTH:-24}" \
     -rfbport "$PAL_VNC_PORT" \
     -localhost \
