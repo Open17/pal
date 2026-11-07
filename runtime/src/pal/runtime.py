@@ -25,6 +25,7 @@ from pal.memory import MemoryService
 from pal.messaging import ConversationLog, EventBus, Messenger
 from pal.tools import ToolProvider, ToolRegistry
 from pal.tools.builtin import DisplayTools, MemoryTools, TeamTools
+from pal.tools.computer import ComputerTools
 
 log = get_logger(__name__)
 
@@ -55,7 +56,12 @@ class PalRuntime:
         self.team = BotTeam(config, self.state, self.messenger, self.bus)
 
         self.tools = ToolRegistry(
-            [MemoryTools(self.memory), TeamTools(self.team), DisplayTools(self.displays)]
+            [
+                MemoryTools(self.memory),
+                TeamTools(self.team),
+                DisplayTools(self.displays),
+                ComputerTools(self.displays, paths.data / "cache" / "screens"),
+            ]
         )
         for provider in extra_tools or ():
             self.tools.add(provider)
