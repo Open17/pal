@@ -4,9 +4,11 @@ Everything that ends up inside the Pal VM (Debian 13 "trixie", arm64).
 
 ```
 guest/
+  agent/        pal-guest-agent: the VM's only link to the host and internet
   image/        builds the VM disk and cloud-init seed on the Mac
   provision/    first-boot provisioning that runs inside the VM
   system/       files installed into the VM
+    systemd/system/ pal-guest-agent.service
     systemd/user/   pal-runtime.service, pal-display@.service
     bin/            pal-display-session, pal-display-save, pal-desktop-defaults
 ```

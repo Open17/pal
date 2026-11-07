@@ -42,7 +42,10 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'
 pytest
 
+# Guest agent (from the repository root, with the runtime's virtual environment)
+pytest guest/agent/tests
+
 # Host
 cd host
-swift build && swift test
+swift build && scripts/test.sh
 ```
