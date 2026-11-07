@@ -281,9 +281,9 @@ class ComputerTools(ToolProvider):
 
         @tool(
             "open_app",
-            "Start a graphical program on your display, e.g. 'firefox-esr https://example.com', "
-            "'chromium', 'xfce4-terminal', 'thunar ~/workspaces', 'mousepad notes.txt'. It keeps "
-            "running after your turn ends.",
+            "Start a graphical program on your display, e.g. 'xfce4-terminal', "
+            "'thunar ~/workspaces', 'mousepad notes.txt'. For websites use the browser tools "
+            "instead: they share the team's logins. It keeps running after your turn ends.",
             {"command": str},
         )
         async def open_app(args: dict[str, Any]) -> ToolResult:
