@@ -3,12 +3,18 @@
 // Started by launchd (see `palctl start`). It boots the VM described by
 // vm/config.json, serves the control socket, and exits once the guest has
 // shut down. A clean exit tells launchd not to restart it; a crash does.
+//
+// The guest has no network interface. palvmd is its only way out: the
+// egress service connects it to the public internet and nowhere else, and
+// the port forwarder exposes its services on this Mac's loopback interface.
 
 import Darwin
 import Foundation
 import PalVMKit
 
 setvbuf(stdout, nil, _IOLBF, 0)
+// A peer that hangs up must never terminate the daemon.
+signal(SIGPIPE, SIG_IGN)
 
 let timestamp = ISO8601DateFormatter()
 func log(_ message: String) {
@@ -33,14 +39,16 @@ let host: VirtualMachineHost
 do {
     configuration = try VMConfiguration.load(from: paths.vmConfiguration)
     let built = try VirtualMachineBuilder(configuration: configuration, directory: paths.vmDirectory).build()
-    host = VirtualMachineHost(configuration: built, macAddress: configuration.macAddress)
+    host = VirtualMachineHost(configuration: built)
 } catch let error as PalHostError {
     giveUp(error.description)
 } catch {
     giveUp("invalid VM configuration: \(error.localizedDescription)")
 }
 
-let resolver = GuestAddressResolver()
+let egress = EgressService(log: log)
+let forwarder = PortForwarder(forwards: configuration.forwardedPorts, device: { host.socketDevice }, log: log)
+
 let server = ControlServer(socketURL: paths.controlSocket) { request, respond in
     switch request.command {
     case .status:
@@ -48,8 +56,7 @@ let server = ControlServer(socketURL: paths.controlSocket) { request, respond in
             ControlResponse(
                 ok: true,
                 state: host.state,
-                address: resolver.address(for: host.macAddress),
-                macAddress: host.macAddress,
+                forwardedPorts: forwarder.active,
                 pid: getpid(),
                 startedAt: host.startedAt,
                 error: host.lastError
@@ -64,6 +71,7 @@ let server = ControlServer(socketURL: paths.controlSocket) { request, respond in
 
 host.onStop = { error in
     server.stop()
+    forwarder.stop()
     if let error {
         log("VM stopped with error: \(error.localizedDescription)")
         exit(1)
@@ -92,11 +100,18 @@ do {
     exit(1)
 }
 
-log("starting VM (\(configuration.cpuCount) CPUs, \(configuration.memorySizeMiB) MiB, MAC \(configuration.macAddress))")
+log("starting VM (\(configuration.cpuCount) CPUs, \(configuration.memorySizeMiB) MiB, no network interface)")
 host.start { result in
     switch result {
     case .success:
-        log("VM running")
+        guard let device = host.socketDevice else {
+            log("VM has no vsock device")
+            exit(1)
+        }
+        egress.attach(to: device)
+        forwarder.start()
+        let ports = forwarder.active.map { "\($0.name) 127.0.0.1:\($0.hostPort)" }.joined(separator: ", ")
+        log("VM running; forwarding \(ports)")
     case .failure(let error):
         log("VM failed to start: \(error.localizedDescription)")
         server.stop()
