@@ -8,7 +8,7 @@
 #   --vm-dir DIR            where the VM lives (default: ~/Library/Application Support/Pal/vm)
 #   --disk-size SIZE        virtual disk size in GiB (default: 64)
 #   --cpus N                virtual CPUs (default: 4)
-#   --memory MIB            memory in MiB (default: 8192)
+#   --memory MIB            memory in MiB (default: a quarter of this Mac's memory, 2048-8192)
 #   --oauth-token-file F    sign-in token from `claude setup-token` (or set PAL_OAUTH_TOKEN)
 #   --no-sudo               do not give the pal user passwordless sudo
 #   --force                 replace an existing disk (the VM's data is lost)
@@ -25,7 +25,10 @@ min_debian=${PAL_MIN_DEBIAN_VERSION:-13.7}
 vm_dir="$HOME/Library/Application Support/Pal/vm"
 disk_gib=64
 cpus=4
-memory_mib=8192
+# A quarter of the Mac's memory leaves the host plenty of room.
+memory_mib=$(( $(sysctl -n hw.memsize) / 1048576 / 4 ))
+(( memory_mib < 2048 )) && memory_mib=2048
+(( memory_mib > 8192 )) && memory_mib=8192
 oauth_token_file=""
 grant_sudo=true
 force=false

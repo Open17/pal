@@ -34,7 +34,7 @@ rm ~/pal-token.txt
 ```
 
 The builder downloads and verifies the Debian 13 arm64 cloud image, creates a
-64 GiB sparse disk, generates the VM's secrets (API token, VNC password, SSH
+64 GiB sparse disk, gives the VM a quarter of the Mac's memory, generates the VM's secrets (API token, VNC password, SSH
 key), and writes everything to `~/Library/Application Support/Pal/vm`. Useful
 options: `--cpus`, `--memory` (MiB), `--disk-size` (GiB), `--no-sudo`.
 
