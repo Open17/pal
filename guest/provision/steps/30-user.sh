@@ -10,6 +10,13 @@ else
     rm -f /etc/sudoers.d/90-pal
 fi
 
+# Create the XDG parents first: install -d would otherwise make them owned by
+# root, and the desktop and user services could not write their settings.
+for dir in "$PAL_HOME/.config" "$PAL_HOME/.local" "$PAL_HOME/.local/share"; do
+    install -d -o "$PAL_USER" -g "$PAL_USER" "$dir"
+    chown "$PAL_USER:$PAL_USER" "$dir"
+done
+
 for dir in "$PAL_CONFIG" "$PAL_CONFIG/bots" "$PAL_CONFIG/displays" "$PAL_DATA" \
     "$PAL_WORKSPACES" "$PAL_WORKSPACES/shared"; do
     install -d -o "$PAL_USER" -g "$PAL_USER" "$dir"
