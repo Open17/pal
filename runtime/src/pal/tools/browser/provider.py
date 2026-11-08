@@ -1,4 +1,4 @@
-"""Tools for browsing the web in the team's shared browser."""
+"""Tools for browsing the web in the bot's own browser."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Locator, Page
 
 from ..base import ToolContext, ToolProvider, ToolResult, error_result, text_result
-from .session import BrowserError, SharedBrowser
+from .session import BrowserError, Browsers, normalize_url
 
 MAX_SNAPSHOT = 15000
 MAX_TEXT = 20000
@@ -88,19 +88,19 @@ def _fit_png(png: bytes, max_width: int = 1280) -> bytes:
 class BrowserTools(ToolProvider):
     name = "browser"
     description = (
-        "the team's shared web browser (shared logins, your own window): browser_open, "
+        "your own web browser, signed in wherever your teammates are: browser_open, "
         "browser_snapshot, browser_click, browser_type, browser_press, browser_read, "
         "browser_screenshot, browser_tabs, browser_navigate, browser_scroll, browser_wait, "
         "browser_eval"
     )
-    # The browser has its own display, woken by the tools themselves.
-    requires_display = False
+    # The browser runs on the bot's own display.
+    requires_display = True
 
-    def __init__(self, browser: SharedBrowser) -> None:
-        self.browser = browser
+    def __init__(self, browsers: Browsers) -> None:
+        self.browsers = browsers
 
     def tools(self, context: ToolContext) -> list[SdkMcpTool[Any]]:
-        bot_id, shared = context.bot_id, self.browser
+        bot_id, browsers = context.bot_id, self.browsers
 
         async def guarded(action) -> ToolResult:
             try:
@@ -112,8 +112,9 @@ class BrowserTools(ToolProvider):
 
         @tool(
             "browser_open",
-            "Open a web page in your browser window. The browser is shared with your "
-            "teammates, so you are signed in wherever they (or the user) are.",
+            "Open a web page in your browser (Chromium, on your display). Logins carry "
+            "over between everyone's browsers, so you are signed in wherever your "
+            "teammates or the user are.",
             {
                 "type": "object",
                 "properties": {
@@ -125,13 +126,11 @@ class BrowserTools(ToolProvider):
         )
         async def browser_open(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                url = args["url"].strip()
-                if not re.match(r"^[a-z][a-z0-9+.-]*:", url, re.I):
-                    url = "https://" + url
+                url = normalize_url(args["url"])
                 page = (
-                    await shared.new_tab(bot_id)
+                    await browsers.new_tab(bot_id)
                     if args.get("new_tab")
-                    else await shared.page(bot_id)
+                    else await browsers.page(bot_id)
                 )
                 await page.goto(url, wait_until="domcontentloaded", timeout=45000)
                 return text_result(await _where(page))
@@ -147,7 +146,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_snapshot(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 tree = await page.locator("body").aria_snapshot(timeout=ACTION_TIMEOUT_MS)
                 if len(tree) > MAX_SNAPSHOT:
                     tree = tree[:MAX_SNAPSHOT] + "\n… (truncated; scroll or use browser_read)"
@@ -163,7 +162,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_click(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 await locate(page, args).click(timeout=ACTION_TIMEOUT_MS)
                 await page.wait_for_load_state("domcontentloaded", timeout=ACTION_TIMEOUT_MS)
                 return text_result(f"Clicked {describe_target(args)}. {await _where(page)}")
@@ -186,7 +185,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_type(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 field = locate(page, args)
                 await field.fill(args["value"], timeout=ACTION_TIMEOUT_MS)
                 if args.get("submit"):
@@ -210,7 +209,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_press(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 for key in args["keys"]:
                     await page.keyboard.press(key)
                 return text_result(f"Pressed {', '.join(args['keys'])}. {await _where(page)}")
@@ -231,7 +230,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_read(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 text = await page.locator(args.get("selector") or "body").first.inner_text(
                     timeout=ACTION_TIMEOUT_MS
                 )
@@ -249,7 +248,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_screenshot(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 await page.bring_to_front()
                 png = await page.screenshot(full_page=bool(args.get("full_page")), timeout=30000)
                 return {
@@ -282,14 +281,14 @@ class BrowserTools(ToolProvider):
             async def run() -> ToolResult:
                 action = args["action"]
                 if action == "new":
-                    page = await shared.new_tab(bot_id)
+                    page = await browsers.new_tab(bot_id)
                     if args.get("url"):
                         await page.goto(args["url"], wait_until="domcontentloaded", timeout=45000)
                     return text_result(f"Opened a tab. {await _where(page)}")
-                await shared.page(bot_id)
-                tabs = shared.tabs(bot_id)
+                await browsers.page(bot_id)
+                tabs = browsers.tabs(bot_id)
                 if action == "list":
-                    current = await shared.page(bot_id)
+                    current = await browsers.page(bot_id)
                     rows = []
                     for i, tab in enumerate(tabs):
                         marker = "*" if tab is current else " "
@@ -301,9 +300,9 @@ class BrowserTools(ToolProvider):
                 if not 0 <= index < len(tabs):
                     return error_result(f"no tab {index}; you have {len(tabs)} (see 'list')")
                 if action == "switch":
-                    shared.select(bot_id, tabs[index])
+                    browsers.select(bot_id, tabs[index])
                     return text_result(await _where(tabs[index]))
-                await shared.close_tab(bot_id, tabs[index])
+                await browsers.close_tab(bot_id, tabs[index])
                 return text_result(f"Closed tab {index}.")
 
             return await guarded(run)
@@ -319,7 +318,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_navigate(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 options = {"wait_until": "domcontentloaded", "timeout": 45000}
                 if args["action"] == "back":
                     await page.go_back(**options)
@@ -345,7 +344,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_scroll(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 script = {
                     "top": "() => window.scrollTo(0, 0)",
                     "bottom": "() => window.scrollTo(0, document.body.scrollHeight)",
@@ -370,7 +369,7 @@ class BrowserTools(ToolProvider):
         )
         async def browser_wait(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 seconds = float(args.get("seconds", 10))
                 if args.get("text"):
                     await page.get_by_text(args["text"]).first.wait_for(timeout=seconds * 1000)
@@ -390,7 +389,7 @@ class BrowserTools(ToolProvider):
             async def run() -> ToolResult:
                 import json
 
-                page = await shared.page(bot_id)
+                page = await browsers.page(bot_id)
                 value = await page.evaluate(args["script"])
                 text = json.dumps(value, indent=2, default=str)
                 if len(text) > MAX_TEXT:

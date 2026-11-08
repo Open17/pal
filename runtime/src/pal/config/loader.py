@@ -30,6 +30,8 @@ BOTS_DIR_NAME = "bots"
 
 DEFAULT_CONFIG_DIR = "~/.config/pal"
 DEFAULT_WORKSPACES_DIR = "~/workspaces"
+#: Settings that no longer exist; ignored so older configuration still loads.
+RETIRED_KEYS = frozenset({"browser_display"})
 DEFAULT_DATA_DIR = "~/.local/share/pal"
 
 _T = TypeVar("_T")
@@ -55,7 +57,9 @@ def load_config(config_dir: str | Path | None = None) -> PalConfig:
     agent = _load_section(AgentSettings, raw.get("agent", {}), "agent")
     if agent.permission_mode not in PERMISSION_MODES:
         raise ConfigError(f"[agent] permission_mode must be one of {', '.join(PERMISSION_MODES)}")
-    displays = _load_section(DisplaySettings, raw.get("displays", {}), "displays")
+    # Earlier versions had a separate display for a browser all bots shared.
+    displays_raw = {k: v for k, v in raw.get("displays", {}).items() if k not in RETIRED_KEYS}
+    displays = _load_section(DisplaySettings, displays_raw, "displays")
     if displays.backend not in DISPLAY_BACKENDS:
         raise ConfigError(f"[displays] backend must be one of {', '.join(DISPLAY_BACKENDS)}")
     if displays.idle_timeout_seconds <= 0:

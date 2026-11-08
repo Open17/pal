@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch a graphical program onto your Pal display.
 #
-#   pal-open firefox-esr https://example.org
+#   pal-open mousepad notes.txt
 #
 # The program runs in the display's slice instead of as a child of the
 # calling shell, so it sleeps and wakes with the display and stays open when

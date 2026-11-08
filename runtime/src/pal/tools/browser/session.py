@@ -1,208 +1,203 @@
-"""The team's shared browser.
+"""Each bot's own Chromium, driven over the DevTools protocol.
 
-One Chromium with one profile runs on its own display, so a login made by
-any bot — or by the user, watching that display from the app — works for
-every bot. Each bot gets its own window and only ever sees its own tabs.
+Every display owner (each bot, and the user) has a Chromium of their own, on
+their own display and with their own profile, so any number of them can
+browse at once. The ``pal-chromium`` launcher, which is what ``chromium``
+runs on the desktops, opens it with a remote-debugging port derived from the
+display number; the tools connect to that port, starting the browser first if
+it isn't running. Logins are carried between the browsers by
+:class:`~pal.tools.browser.sync.LoginSync`.
 
-The browser is started with ``pal-open``, so it lives in its display's slice
-and survives runtime restarts; bots drive it over the DevTools protocol, which
-works whether or not their window is in front.
+Browsers are started with ``pal-open``, so they live in their display's slice
+and survive runtime restarts.
 """
 
 from __future__ import annotations
 
 import asyncio
-import shlex
+import re
+from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import aiohttp
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
-from pal.config import BROWSER_ID
-from pal.displays import DisplayManager
+from pal.displays import Display, DisplayManager
 from pal.log import get_logger
 
 from ..computer.desktop import Desktop, DesktopError
 
 log = get_logger(__name__)
 
-DEBUG_PORT = 9222
-CHROMIUM = "chromium"
+#: A display's browser listens on this plus the display number (``:10`` → 9310).
+DEBUG_PORT_BASE = 9300
+LAUNCHER = "pal-chromium"
+
+ConnectHook = Callable[[str, BrowserContext], Awaitable[None]]
 
 
 class BrowserError(RuntimeError):
     """Shown to the bot as a tool error."""
 
 
-def chromium_command(port: int, profile: Path) -> list[str]:
-    return [
-        CHROMIUM,
-        f"--remote-debugging-port={port}",
-        "--remote-debugging-address=127.0.0.1",
-        f"--user-data-dir={profile}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--password-store=basic",
-        "--disable-features=Translate,MediaRouter",
-        # Bots work in windows that are often behind others; keep them running.
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--start-maximized",
-    ]
+def debug_port(display: Display) -> int:
+    return DEBUG_PORT_BASE + display.number
 
 
-class SharedBrowser:
-    def __init__(self, displays: DisplayManager, profile: Path, downloads: Path) -> None:
+def normalize_url(url: str) -> str:
+    """``example.com`` → ``https://example.com``; URLs with a scheme are kept."""
+
+    url = url.strip()
+    if not url:
+        raise BrowserError("no address given")
+    if not re.match(r"^[a-z][a-z0-9+.-]*:", url, re.IGNORECASE):
+        url = "https://" + url
+    return url
+
+
+class Browsers:
+    """Connections to every display owner's browser."""
+
+    def __init__(self, displays: DisplayManager, scratch: Path) -> None:
         self.displays = displays
-        self.profile = profile
-        self.downloads = downloads
+        self.scratch = scratch
         self._playwright: Playwright | None = None
-        self._browser: Browser | None = None
-        self._context: BrowserContext | None = None
-        self._lock = asyncio.Lock()
-        self._tabs: dict[str, list[Page]] = {}
+        self._browsers: dict[str, Browser] = {}
+        self._contexts: dict[str, BrowserContext] = {}
         self._current: dict[str, Page] = {}
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._on_connect: list[ConnectHook] = []
+
+    def on_connect(self, hook: ConnectHook) -> None:
+        """Call ``hook(owner, context)`` each time a browser is (re)connected."""
+
+        self._on_connect.append(hook)
 
     # -- connection ------------------------------------------------------------
 
-    async def context(self) -> BrowserContext:
-        """Connect to the shared browser, starting it (and its display) if needed."""
+    def endpoint(self, owner: str) -> str:
+        return f"http://127.0.0.1:{debug_port(self.displays.get(owner))}"
 
-        await self.displays.ensure_awake(BROWSER_ID)
-        async with self._lock:
-            if (
-                self._context is not None
-                and self._browser is not None
-                and self._browser.is_connected()
-            ):
-                return self._context
-            self._forget_pages()
-            endpoint = f"http://127.0.0.1:{DEBUG_PORT}"
+    def connected(self, owner: str) -> BrowserContext | None:
+        browser = self._browsers.get(owner)
+        if browser is None or not browser.is_connected():
+            return None
+        return self._contexts.get(owner)
+
+    async def context(self, owner: str, *, launch: bool = True) -> BrowserContext | None:
+        """The owner's browser, starting it (and waking their display) if needed.
+
+        With ``launch=False`` this only connects to a browser that is already
+        running, and returns None otherwise.
+        """
+
+        if launch:
+            await self.displays.ensure_awake(owner)
+        async with self._locks[owner]:
+            if (context := self.connected(owner)) is not None:
+                return context
+            self._forget(owner)
+            endpoint = self.endpoint(owner)
             if not await _devtools_ready(endpoint):
-                await self._launch(endpoint)
+                if not launch:
+                    return None
+                await self._launch(owner, endpoint)
             if self._playwright is None:
                 self._playwright = await async_playwright().start()
-            self._browser = await self._playwright.chromium.connect_over_cdp(endpoint)
-            contexts = self._browser.contexts
-            self._context = contexts[0] if contexts else await self._browser.new_context()
-            self._context.on("page", self._adopt_popup)
-            await self._set_download_folder()
-            log.info("connected to the shared browser on %s", endpoint)
-            return self._context
+            browser = await self._playwright.chromium.connect_over_cdp(endpoint)
+            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            self._browsers[owner], self._contexts[owner] = browser, context
+            log.info("connected to %s's browser on %s", owner, endpoint)
+        for hook in self._on_connect:
+            try:
+                await hook(owner, context)
+            except Exception:
+                log.exception("browser connect hook failed for %s", owner)
+        return context
 
-    async def _launch(self, endpoint: str) -> None:
-        self.profile.mkdir(parents=True, exist_ok=True)
-        display = self.displays.get(BROWSER_ID)
-        desktop = Desktop(display.name, owner=BROWSER_ID, scratch=self.profile)
+    async def _launch(self, owner: str, endpoint: str) -> None:
+        display = self.displays.get(owner)
+        desktop = Desktop(display.name, owner=owner, scratch=self.scratch)
         try:
-            await desktop.open(shlex.join(chromium_command(DEBUG_PORT, self.profile)))
+            await desktop.open(LAUNCHER)
         except DesktopError as exc:
-            raise BrowserError(f"could not start the browser: {exc}") from exc
+            raise BrowserError(f"could not start your browser: {exc}") from exc
         for _ in range(60):
             if await _devtools_ready(endpoint):
                 return
             await asyncio.sleep(0.5)
-        raise BrowserError("the browser did not start within 30 seconds")
+        raise BrowserError("your browser did not start within 30 seconds")
 
-    async def _set_download_folder(self) -> None:
-        assert self._browser is not None
-        self.downloads.mkdir(parents=True, exist_ok=True)
-        try:
-            cdp = await self._browser.new_browser_cdp_session()
-            await cdp.send(
-                "Browser.setDownloadBehavior",
-                {"behavior": "allow", "downloadPath": str(self.downloads), "eventsEnabled": True},
-            )
-        except Exception as exc:  # downloads still work, to the default folder
-            log.warning("could not set the browser's download folder: %s", exc)
-
-    def _forget_pages(self) -> None:
-        self._tabs.clear()
-        self._current.clear()
-
-    # -- tabs ------------------------------------------------------------------
-
-    def tabs(self, bot_id: str) -> list[Page]:
-        tabs = [page for page in self._tabs.get(bot_id, []) if not page.is_closed()]
-        self._tabs[bot_id] = tabs
-        return tabs
-
-    async def page(self, bot_id: str) -> Page:
-        """The tab the bot is working in, opening its window if it has none."""
-
-        await self.context()
-        current = self._current.get(bot_id)
-        if current is not None and not current.is_closed():
-            self.displays.touch(BROWSER_ID)
-            return current
-        tabs = self.tabs(bot_id)
-        if tabs:
-            self._current[bot_id] = tabs[-1]
-            return tabs[-1]
-        return await self.new_tab(bot_id)
-
-    async def new_tab(self, bot_id: str, url: str = "about:blank") -> Page:
-        """Open a tab in the bot's window (opening the window first if needed)."""
-
-        context = await self.context()
-        tabs = self.tabs(bot_id)
-        async with context.expect_page() as created:
-            if tabs:
-                # A tab opened from one of the bot's pages joins that page's window.
-                await tabs[-1].evaluate("url => { window.open(url, '_blank') }", url)
-            else:
-                assert self._browser is not None
-                cdp = await self._browser.new_browser_cdp_session()
-                await cdp.send("Target.createTarget", {"url": url, "newWindow": True})
-        page = await created.value
-        self._claim(bot_id, page)
-        return page
-
-    def select(self, bot_id: str, page: Page) -> None:
-        self._current[bot_id] = page
-
-    async def close_tab(self, bot_id: str, page: Page) -> None:
-        await page.close()
-        tabs = self.tabs(bot_id)
-        if self._current.get(bot_id) is page:
-            self._current.pop(bot_id, None)
-            if tabs:
-                self._current[bot_id] = tabs[-1]
-
-    def _claim(self, bot_id: str, page: Page) -> None:
-        for owner, tabs in self._tabs.items():
-            if owner != bot_id and page in tabs:
-                tabs.remove(page)
-        if page not in self._tabs.setdefault(bot_id, []):
-            self._tabs[bot_id].append(page)
-        self._current[bot_id] = page
-
-    def owner(self, page: Page) -> str | None:
-        return next((bot for bot, tabs in self._tabs.items() if page in tabs), None)
-
-    def _adopt_popup(self, page: Page) -> None:
-        """Tabs a page opens (target=_blank links, pop-ups) belong to that page's bot."""
-
-        async def adopt() -> None:
-            try:
-                opener = await page.opener()
-            except Exception:
-                return
-            bot = self.owner(opener) if opener is not None else None
-            if bot is not None and self.owner(page) is None:
-                self._tabs[bot].append(page)
-
-        asyncio.get_running_loop().create_task(adopt())
+    def _forget(self, owner: str) -> None:
+        self._browsers.pop(owner, None)
+        self._contexts.pop(owner, None)
+        self._current.pop(owner, None)
 
     async def close(self) -> None:
-        """Disconnect. The browser keeps running, with every tab and login."""
+        """Disconnect. The browsers keep running, with every tab and login."""
 
-        self._browser = self._context = None
-        self._forget_pages()
+        for owner in list(self._browsers):
+            self._forget(owner)
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None
+
+    # -- tabs ------------------------------------------------------------------
+
+    async def _require(self, owner: str) -> BrowserContext:
+        context = await self.context(owner)
+        assert context is not None  # launch=True starts it or raises
+        return context
+
+    def tabs(self, owner: str) -> list[Page]:
+        context = self.connected(owner)
+        if context is None:
+            return []
+        return [page for page in context.pages if not page.is_closed()]
+
+    async def page(self, owner: str) -> Page:
+        """The tab the owner is working in, opening one if there is none."""
+
+        await self._require(owner)
+        current = self._current.get(owner)
+        if current is not None and not current.is_closed():
+            self.displays.touch(owner)
+            return current
+        tabs = self.tabs(owner)
+        if tabs:
+            self._current[owner] = tabs[-1]
+            return tabs[-1]
+        return await self.new_tab(owner)
+
+    async def new_tab(self, owner: str, url: str = "about:blank") -> Page:
+        """Open a tab next to the owner's current one (or in a new window)."""
+
+        context = await self._require(owner)
+        tabs = self.tabs(owner)
+        if not tabs:
+            page = await context.new_page()
+        else:
+            opener = self._current.get(owner)
+            if opener is None or opener.is_closed():
+                opener = tabs[-1]
+            async with context.expect_page() as created:
+                # A tab opened from a page joins that page's window.
+                await opener.evaluate("url => { window.open(url, '_blank') }", url)
+            page = await created.value
+        self._current[owner] = page
+        return page
+
+    def select(self, owner: str, page: Page) -> None:
+        self._current[owner] = page
+
+    async def close_tab(self, owner: str, page: Page) -> None:
+        await page.close()
+        if self._current.get(owner) is page:
+            self._current.pop(owner, None)
+            tabs = self.tabs(owner)
+            if tabs:
+                self._current[owner] = tabs[-1]
 
 
 async def _devtools_ready(endpoint: str) -> bool:
