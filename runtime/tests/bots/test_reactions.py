@@ -110,3 +110,17 @@ async def test_user_reactions_need_a_real_message(harness) -> None:
     message = await harness.team.send_from_user("atlas", "hi")
     with pytest.raises(ValueError):
         await harness.team.react_from_user("atlas", message.id, "way too long for an emoji")
+
+
+async def test_a_reply_quotes_the_message_it_answers(harness) -> None:
+    reply = await harness.reply_to(await harness.team.send_from_user("atlas", "pick a color"))
+    message = await harness.team.send_from_user("atlas", "why that one?", reply_to=reply.id)
+    assert message.reply_to == reply.id
+    assert message.metadata["quote"] == {"sender": "atlas", "content": "echo: pick a color"}
+    await harness.reply_to(message)
+    assert FakeClient.instances[-1].prompts[-1] == (
+        '[Replying to your message: "echo: pick a color"]\n\nwhy that one?'
+    )
+
+    with pytest.raises(UnknownMessageError):
+        await harness.team.send_from_user("atlas", "hm", reply_to="msg_nope")

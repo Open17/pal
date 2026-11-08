@@ -92,7 +92,12 @@ async def send_message(request: web.Request) -> web.Response:
     content = body.get("content")
     if not isinstance(content, str) or not content.strip():
         raise ApiError(400, "invalid_request", "'content' must be a non-empty string")
-    message = await context(request).team.send_from_user(request.match_info["bot_id"], content)
+    reply_to = body.get("reply_to")
+    if reply_to is not None and (not isinstance(reply_to, str) or not reply_to):
+        raise ApiError(400, "invalid_request", "'reply_to' must be a message id")
+    message = await context(request).team.send_from_user(
+        request.match_info["bot_id"], content, reply_to=reply_to
+    )
     return web.json_response({"message": message.to_dict()}, status=202)
 
 
