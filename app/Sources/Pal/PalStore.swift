@@ -522,6 +522,19 @@ final class PalStore {
         selection = .pal(palId)
     }
 
+    /// The sidebar's rows, top to bottom.
+    var sidebarItems: [SidebarItem] {
+        [.memory, .computer] + sortedPals.map { .pal($0.id) }
+    }
+
+    /// Moves the selection one row up or down the sidebar, wrapping around.
+    func selectAdjacent(_ step: Int) {
+        let items = sidebarItems
+        guard !items.isEmpty else { return }
+        let current = selection.flatMap { items.firstIndex(of: $0) } ?? (step > 0 ? -1 : items.count)
+        selection = items[(current + step + items.count) % items.count]
+    }
+
     func isViewing(_ id: String) -> Bool {
         selectedId == id && NSApp.isActive
     }

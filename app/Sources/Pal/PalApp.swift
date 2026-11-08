@@ -32,7 +32,13 @@ struct PalApp: App {
                 Button("Computer") { store.selection = .computer }
                     .keyboardShortcut("2")
                 Divider()
-                ForEach(Array(store.sortedPals.prefix(9).enumerated()), id: \.element.id) { index, pal in
+                Button("Next in Sidebar") { store.selectAdjacent(1) }
+                    .keyboardShortcut(.tab, modifiers: .control)
+                Button("Previous in Sidebar") { store.selectAdjacent(-1) }
+                    .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                Divider()
+                // In team order, so a bot keeps its shortcut when the sidebar reorders.
+                ForEach(Array(store.pals.prefix(9).enumerated()), id: \.element.id) { index, pal in
                     Button(pal.name) { store.open(pal.id) }
                         .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.command, .option])
                 }

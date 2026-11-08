@@ -168,6 +168,9 @@ struct SearchView: View {
                                 ResultRow(result: result, highlighted: index == highlighted)
                                     .id(result.id)
                                     .onTapGesture { open(all, at: index) }
+                                    .accessibilityElement(children: .combine)
+                                    .accessibilityAddTraits(.isButton)
+                                    .accessibilityAction { open(all, at: index) }
                                     .onHover { if $0 { highlighted = index } }
                             }
                         }

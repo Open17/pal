@@ -113,17 +113,24 @@ private struct SidebarButton: View {
 private struct Sidebar: View {
     @Environment(PalStore.self) private var store
     @State private var removing: Pal?
+    @State private var resetting: Pal?
 
     var body: some View {
         List {
+            Section {
+                PlaceRow(title: "Memory", symbol: "brain", selected: store.selection == .memory)
+                    .sidebarRow(.memory, index: 0)
+                PlaceRow(title: "Computer", symbol: "display", selected: store.selection == .computer)
+                    .sidebarRow(.computer, index: 1)
+            }
             Section("Team") {
                 ForEach(Array(store.sortedPals.enumerated()), id: \.element.id) { index, pal in
                     PalRow(pal: pal, selected: store.selectedId == pal.id)
-                        .sidebarRow(.pal(pal.id), index: index)
+                        .sidebarRow(.pal(pal.id), index: index + 2)
                         .contextMenu {
                             Button("Bot Settings…") { store.sheet = .botSettings(pal) }
                             Divider()
-                            Button("New Conversation") { store.resetSession(pal.id) }
+                            Button("New Conversation…") { resetting = pal }
                             Divider()
                             Button("Remove \(pal.name)…", role: .destructive) { removing = pal }
                                 .disabled(store.pals.count <= 1)
@@ -157,6 +164,15 @@ private struct Sidebar: View {
             Button("Remove \(pal.name)", role: .destructive) { store.removeBot(pal.id) }
         } message: { pal in
             Text("\(pal.name) stops and their display closes. Their memories and your conversation history are kept.")
+        }
+        .confirmationDialog(
+            "Start a new conversation with \(resetting?.name ?? "this bot")?",
+            isPresented: Binding(get: { resetting != nil }, set: { if !$0 { resetting = nil } }),
+            presenting: resetting
+        ) { pal in
+            Button("New Conversation") { store.resetSession(pal.id) }
+        } message: { pal in
+            Text("\(pal.name) forgets this conversation but keeps their memory. The history stays here.")
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFooter() }
     }
@@ -218,6 +234,24 @@ private struct PalRow: View {
     }
 }
 
+/// Memory or Computer, above the team.
+private struct PlaceRow: View {
+    let title: String
+    let symbol: String
+    let selected: Bool
+
+    var body: some View {
+        Label {
+            Text(title).font(.system(size: 13, weight: .medium))
+        } icon: {
+            Image(systemName: symbol)
+                .foregroundStyle(selected ? Color.white : Color.palAccent)
+                .frame(width: 34)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 /// A sidebar row. It's selected when the click is released on it, like a
 /// button, rather than on press. The selection color is drawn by hand because
 /// the system highlight turns grey whenever the sidebar isn't focused.
@@ -234,6 +268,10 @@ private struct SidebarRow: ViewModifier {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture { store.selection = item }
+            // Rows are picked by hand, so tell VoiceOver what they are.
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { store.selection = item }
             // The selected row skips the launch cascade and arrives with the
             // window, so its highlight is never empty.
             .loadIn(selected ? nil : index)
