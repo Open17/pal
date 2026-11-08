@@ -59,10 +59,24 @@ nonisolated final class RemoteDisplay: @unchecked Sendable {
         send(message)
     }
 
-    func scroll(x: Int, y: Int, up: Bool) {
-        let wheel: UInt8 = up ? 8 : 16
-        pointer(x: x, y: y, buttons: buttons | wheel)
-        pointer(x: x, y: y, buttons: buttons & ~wheel)
+    enum ScrollDirection {
+        case up, down, left, right
+
+        /// The wheel "buttons" VNC uses for each direction.
+        var mask: UInt8 {
+            switch self {
+            case .up: 8
+            case .down: 16
+            case .left: 32
+            case .right: 64
+            }
+        }
+    }
+
+    /// One notch of the scroll wheel.
+    func scroll(x: Int, y: Int, _ direction: ScrollDirection) {
+        pointer(x: x, y: y, buttons: buttons | direction.mask)
+        pointer(x: x, y: y, buttons: buttons & ~direction.mask)
     }
 
     func key(_ keysym: UInt32, down: Bool) {
