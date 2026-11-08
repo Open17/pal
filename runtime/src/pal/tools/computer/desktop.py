@@ -126,7 +126,14 @@ class Desktop:
 
     @property
     def environment(self) -> dict[str, str]:
-        return {**os.environ, "DISPLAY": self.display, "PAL_BOT_ID": self.owner}
+        return {
+            **os.environ,
+            "DISPLAY": self.display,
+            "PAL_BOT_ID": self.owner,
+            # Text recognition runs several passes at once; each starting a
+            # thread per core made them fight over the cores (40s, not 1s).
+            "OMP_THREAD_LIMIT": "1",
+        }
 
     async def run(self, *args: str, stdin: bytes | None = None, time_limit: float = 20) -> str:
         try:

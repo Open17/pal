@@ -320,3 +320,8 @@ async def test_read_screen_can_describe_another_window(computer: ComputerTools) 
     assert reading[-1] == "--all"  # every window's controls, to pick from
     missing = await handlers(computer)["read_screen"]({"window": "gamma"})
     assert missing["is_error"] is True
+
+
+def test_text_recognition_passes_do_not_fight_over_the_cores(tmp_path: Path) -> None:
+    desktop = Desktop(":10", owner="atlas", scratch=tmp_path)
+    assert desktop.environment["OMP_THREAD_LIMIT"] == "1"
