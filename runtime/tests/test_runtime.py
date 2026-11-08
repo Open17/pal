@@ -16,6 +16,19 @@ from tests.conftest import REPO_CONFIG_DIR
 from tests.displays.test_proxy import free_port
 
 
+async def hello(bot: BotDefinition) -> str:
+    return f"Hello from {bot.name}"
+
+
+async def next_event(events, type_: str):
+    """The next event of one type; greetings and the like can come first."""
+
+    async with asyncio.timeout(2.0):
+        while (event := await events.get()).type != type_:
+            pass
+    return event
+
+
 def runtime_config(tmp_path: Path) -> PalConfig:
     return PalConfig(
         paths=PathSettings(tmp_path / "ws", tmp_path / "data", tmp_path / "cfg"),
@@ -36,6 +49,7 @@ async def test_runtime_end_to_end(tmp_path: Path, monkeypatch) -> None:
         config,
         client_factory=lambda options: FakeClient(options, echo),
         display_backend=InMemoryDisplayBackend(),
+        greeter=hello,
     )
     await runtime.start()
     try:
@@ -51,10 +65,17 @@ async def test_runtime_end_to_end(tmp_path: Path, monkeypatch) -> None:
             for _ in range(100):
                 async with session.get("/v1/conversations/user--atlas/messages") as response:
                     messages = (await response.json())["messages"]
-                if len(messages) == 2:
+                if len(messages) == 3:
                     break
                 await asyncio.sleep(0.02)
-        assert messages[1]["content"] == "echo: hi"
+        # A bot you've never talked to says hello first.
+        assert [m["content"] for m in messages[:2]] == ["Hello from Atlas", "hi"]
+        assert messages[0]["metadata"] == {"greeting": True}
+        # The bot is told what it said, along with your first message.
+        assert messages[2]["content"] == (
+            'echo: [When you joined the team you said hello to the user with: "Hello from '
+            'Atlas"]\n\nhi'
+        )
 
         assert "ANTHROPIC_API_KEY" not in os.environ
         options = FakeClient.instances[-1].options
@@ -83,6 +104,7 @@ async def test_bots_are_added_and_removed_while_running(tmp_path: Path) -> None:
         config,
         client_factory=lambda options: FakeClient(options, echo),
         display_backend=InMemoryDisplayBackend(),
+        greeter=hello,
     )
     await runtime.start()
     try:
@@ -94,7 +116,7 @@ async def test_bots_are_added_and_removed_while_running(tmp_path: Path) -> None:
                 s.post("/v1/bots", json={"name": "Probe"}) as response,
             ):
                 probe = (await response.json())["id"]
-            assert (await events.get()).type == "bot.added"
+            await next_event(events, "bot.added")
         await runtime.remove_bot(probe)
         async with aiohttp.ClientSession(base, headers={"Authorization": f"Bearer {token}"}) as s:
             body = {"name": "Research Pal", "role": "Researcher", "persona": "Dig deep."}
@@ -112,9 +134,11 @@ async def test_bots_are_added_and_removed_while_running(tmp_path: Path) -> None:
                 assert r.status == 202
             for _ in range(100):
                 async with s.get("/v1/conversations/user--research-pal/messages") as r:
-                    if len((await r.json())["messages"]) == 2:
+                    contents = [m["content"] for m in (await r.json())["messages"]]
+                    if len(contents) == 3:
                         break
                 await asyncio.sleep(0.02)
+            assert contents[:2] == ["Hello from Research Pal", "hi"]
             teammates = runtime._options.team()
             assert [bot.id for bot in teammates] == ["atlas", "scout", "research-pal"]
 
@@ -157,6 +181,7 @@ async def test_bot_color_changes_while_running(tmp_path: Path) -> None:
         config,
         client_factory=lambda options: FakeClient(options, echo),
         display_backend=InMemoryDisplayBackend(),
+        greeter=hello,
     )
     await runtime.start()
     try:
@@ -171,8 +196,8 @@ async def test_bot_color_changes_while_running(tmp_path: Path) -> None:
                 async with s.patch("/v1/bots/painter", json={"color": "#ec5b9a"}) as response:
                     assert response.status == 200
                     assert (await response.json())["color"] == "#EC5B9A"
-                event = await events.get()
-            assert (event.type, event.data["color"]) == ("bot.updated", "#EC5B9A")
+                event = await next_event(events, "bot.updated")
+            assert event.data["color"] == "#EC5B9A"
             saved = (tmp_path / "cfg" / "bots" / "painter.toml").read_text()
             assert 'color = "#EC5B9A"' in saved
             assert 'name = "Painter"' in saved
