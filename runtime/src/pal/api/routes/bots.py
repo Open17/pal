@@ -96,6 +96,23 @@ async def send_message(request: web.Request) -> web.Response:
     return web.json_response({"message": message.to_dict()}, status=202)
 
 
+@routes.post("/v1/bots/{bot_id}/reactions")
+async def react(request: web.Request) -> web.Response:
+    """React to a message in your chat with a bot: ``{"message_id": ..., "emoji": "👍"}``.
+    An empty emoji takes your reaction back."""
+
+    body = await json_body(request)
+    message_id, emoji = body.get("message_id"), body.get("emoji", "")
+    if not isinstance(message_id, str) or not message_id:
+        raise ApiError(400, "invalid_request", "'message_id' must be a non-empty string")
+    if not isinstance(emoji, str):
+        raise ApiError(400, "invalid_request", "'emoji' must be a string")
+    reaction = await context(request).team.react_from_user(
+        request.match_info["bot_id"], message_id, emoji
+    )
+    return web.json_response({"message": reaction.to_dict()}, status=201)
+
+
 @routes.post("/v1/bots/{bot_id}/interrupt")
 async def interrupt(request: web.Request) -> web.Response:
     agent = context(request).team.agent(request.match_info["bot_id"])
