@@ -58,6 +58,25 @@ class ConversationLog:
         messages = await asyncio.to_thread(_read_messages, self.path_for(conversation))
         return next((m for m in messages if m.id == message_id), None)
 
+    async def delete_with(self, participant: str) -> list[str]:
+        """Delete every conversation someone took part in; returns their ids."""
+
+        def delete() -> list[str]:
+            if not self.root.is_dir():
+                return []
+            deleted = []
+            for path in self.root.glob("*.jsonl"):
+                try:
+                    pair = participants(path.stem)
+                except ValueError:
+                    continue
+                if participant in pair:
+                    path.unlink(missing_ok=True)
+                    deleted.append(path.stem)
+            return deleted
+
+        return await asyncio.to_thread(delete)
+
     async def conversations(self) -> list[ConversationSummary]:
         def summarize() -> list[ConversationSummary]:
             if not self.root.is_dir():
