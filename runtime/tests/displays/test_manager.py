@@ -173,3 +173,15 @@ async def test_display_that_ended_on_its_own_is_restarted(tmp_path: Path, backen
     display = await manager.ensure_awake("scout")
     assert display.state == "running"
     assert backend.calls.count(("start", "scout")) == 2
+
+
+async def test_waking_thaws_a_display_that_was_already_asleep(
+    tmp_path: Path, backend, clock
+) -> None:
+    # Asleep since before this manager started, which believes it is stopped.
+    backend.states["atlas"] = "sleeping"
+    manager = make_manager(tmp_path, backend, clock)
+    assert manager.get("atlas").state == "stopped"
+    await manager.ensure_awake("atlas")
+    assert manager.get("atlas").state == "running"
+    assert backend.calls == [("thaw", "atlas")]

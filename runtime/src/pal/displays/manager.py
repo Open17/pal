@@ -113,8 +113,7 @@ class DisplayManager:
         display = self.get(owner)
         async with self._locks[owner]:
             display.last_activity = self._clock()
-            if display.is_live:
-                await self._reconcile(display)
+            await self._sync_state(display)
             if display.state == "running":
                 return display
             try:
@@ -206,6 +205,20 @@ class DisplayManager:
             if display.is_live and not self._locks[display.owner].locked():
                 async with self._locks[display.owner]:
                     await self._reconcile(display)
+
+    async def _sync_state(self, display: Display) -> None:
+        """Take the display's actual state, whatever this manager last knew.
+
+        Displays outlive the runtime, so one believed stopped may be running
+        or asleep: waking it must thaw it, not start it again.
+        """
+
+        actual = await self.backend.probe(display)
+        if actual == display.state or actual == "starting":
+            return
+        if display.is_live and actual in ("stopped", "failed"):
+            log.info("display %s (%s) ended on its own", display.name, display.owner)
+        self._set_state(display, actual)
 
     async def _reconcile(self, display: Display) -> None:
         actual = await self.backend.probe(display)
