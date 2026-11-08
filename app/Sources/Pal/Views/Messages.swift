@@ -106,14 +106,20 @@ enum Timeline {
 // MARK: - Message row
 
 /// One message, without a time or avatar beside it: theirs at the left
-/// edge, yours at the right. Hovering near it shows its actions.
+/// edge, yours at the right. Hovering on it, or just beside it, shows its actions.
 struct MessageRowView: View {
     @Environment(PalStore.self) private var store
     let row: MessageRow
     let pal: Pal
     var highlighted = false
-    @State private var hovering = false
+    /// How far around the bubble still counts as on it. Wider than the gap to
+    /// the actions bar, so moving onto the bar keeps it showing.
+    private static let hoverMargin: CGFloat = 10
+    @State private var nearBubble = false
+    @State private var overActions = false
     @State private var picking = false
+
+    private var showsActions: Bool { nearBubble || overActions || picking }
 
     private var message: Message { row.message }
     private var outgoing: Bool { row.sender == .me }
@@ -138,6 +144,12 @@ struct MessageRowView: View {
                     }
                 }
                 content
+                    // Hover counts on the bubble and a thin margin around it; the
+                    // padding is taken back so the layout doesn't change.
+                    .padding(Self.hoverMargin)
+                    .contentShape(Rectangle())
+                    .onHover { nearBubble = $0 }
+                    .padding(-Self.hoverMargin)
                     .overlay(alignment: outgoing ? .bottomLeading : .bottomTrailing) {
                         // Hangs off the bubble's lower corner. (Empty without
                         // reactions; not wrapped in an `if`, which would drop the guides.)
@@ -149,10 +161,9 @@ struct MessageRowView: View {
                             outgoing ? d[.leading] + 4 : d[.trailing] - 4
                         }
                     }
-                    // Beside the bubble's last line, in the empty space next to
-                    // it, so it never narrows the message and stays in view
-                    // under a long one.
-                    .overlay(alignment: outgoing ? .bottomLeading : .bottomTrailing) {
+                    // Centered beside the bubble, in the empty space next to it,
+                    // so it never narrows the message.
+                    .overlay(alignment: outgoing ? .leading : .trailing) {
                         MessageActions(
                             reacted: store.myReaction(to: message.id),
                             picking: $picking,
@@ -161,20 +172,18 @@ struct MessageRowView: View {
                             copy: { store.copy(message) }
                         )
                         .alignmentGuide(outgoing ? .leading : .trailing) { d in
-                            outgoing ? d[.trailing] + 8 : d[.leading] - 8
+                            outgoing ? d[.trailing] + 6 : d[.leading] - 6
                         }
-                        .opacity(hovering || picking ? 1 : 0)
-                        .allowsHitTesting(hovering || picking)
-                        .animation(.easeOut(duration: 0.12), value: hovering || picking)
+                        .onHover { overActions = $0 }
+                        .opacity(showsActions ? 1 : 0)
+                        .allowsHitTesting(showsActions)
+                        .animation(.easeOut(duration: 0.12), value: showsActions)
                     }
             }
             .padding(.bottom, reactions.isEmpty ? 0 : 14)
             if !outgoing { Spacer(minLength: 100) }
         }
         .padding(.top, row.isFirst ? 10 : 0)
-        // The whole row counts as near the message, not just the bubble.
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
     }
 
     @ViewBuilder
