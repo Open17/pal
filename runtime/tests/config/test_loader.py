@@ -25,7 +25,7 @@ def test_empty_directory_uses_defaults(tmp_path: Path) -> None:
 
 def test_repository_config_is_valid() -> None:
     config = load_config(REPO_CONFIG_DIR)
-    assert config.bot_ids == ("atlas", "forge", "scout")
+    assert config.bot_ids == ("pal",)  # one general-purpose bot; users add the rest
     assert all(bot.persona for bot in config.bots)
 
 
@@ -76,3 +76,27 @@ def test_paths_expand_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     write(tmp_path / "cfg" / "pal.toml", '[paths]\nworkspaces = "~/ws"\n')
     config = load_config(tmp_path / "cfg")
     assert config.paths.workspaces == (tmp_path / "ws").resolve()
+
+
+def test_new_bots_get_ids_from_their_names() -> None:
+    from pal.config import new_bot_id
+
+    assert new_bot_id("Research Pal", set()) == "research-pal"
+    assert new_bot_id("Research Pal", {"research-pal"}) == "research-pal-2"
+    assert new_bot_id("42 Écrivain!", set()) == "crivain"
+    assert new_bot_id("!!!", set()) == "bot"
+    assert new_bot_id("User", set()) == "user-2"  # reserved
+
+
+def test_saved_bots_load_back(tmp_path: Path) -> None:
+    from pal.config import BotDefinition, load_bots, save_bot
+
+    bot = BotDefinition(
+        id="writer",
+        name='Quill "the" Writer',
+        role="Writer",
+        persona="Line one.\nLine two with a \\ backslash.",
+        color="#aa3366",
+    )
+    save_bot(tmp_path, bot)
+    assert load_bots(tmp_path) == (bot,)

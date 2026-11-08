@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import signal
+from dataclasses import replace
+from pathlib import Path
 
 from pal import __version__
 from pal.api import ApiContext, ApiServer, create_app, load_or_create_token
@@ -18,11 +20,11 @@ from pal.bots import (
     default_client_factory,
     scrub_api_credentials,
 )
-from pal.config import PalConfig
+from pal.config import BOTS_DIR_NAME, BotDefinition, ConfigError, PalConfig, new_bot_id, save_bot
 from pal.displays import DisplayBackend, DisplayManager, VncProxy, create_backend
 from pal.log import get_logger
 from pal.memory import MemoryService
-from pal.messaging import ConversationLog, EventBus, Messenger
+from pal.messaging import ConversationLog, EventBus, EventType, Messenger
 from pal.tools import ToolProvider, ToolRegistry
 from pal.tools.browser import Browsers, BrowserTools, LoginSync
 from pal.tools.builtin import DisplayTools, MemoryTools, TeamTools
@@ -72,24 +74,84 @@ class PalRuntime:
         for provider in extra_tools or ():
             self.tools.add(provider)
 
-        options = SessionOptionsBuilder(config, self.tools, self.memory, self.displays)
-        self.team.add(
-            BotAgent(
-                bot,
-                options_factory=lambda d, s, resume: options.build(d, s, resume=resume),
-                settings=lambda bot_id=bot.id: self.team.model_settings(bot_id),
-                state=self.state,
-                messenger=self.messenger,
-                bus=self.bus,
-                display_name=self.team.display_name,
-                client_factory=client_factory,
-            )
-            for bot in config.bots
+        self._client_factory = client_factory
+        self._options = SessionOptionsBuilder(
+            config,
+            self.tools,
+            self.memory,
+            self.displays,
+            team=lambda: [agent.definition for agent in self.team.agents],
         )
+        self.team.add(self._make_agent(bot) for bot in config.bots)
 
         self.vnc = VncProxy(self.displays, bind_host=config.displays.vnc_bind_host)
         self.api: ApiServer | None = None
         self._background: list[asyncio.Task[None]] = []
+
+    def _make_agent(self, bot: BotDefinition) -> BotAgent:
+        options = self._options
+        return BotAgent(
+            bot,
+            options_factory=lambda d, s, resume: options.build(d, s, resume=resume),
+            settings=lambda bot_id=bot.id: self.team.model_settings(bot_id),
+            state=self.state,
+            messenger=self.messenger,
+            bus=self.bus,
+            display_name=self.team.display_name,
+            client_factory=self._client_factory,
+        )
+
+    # -- the team --------------------------------------------------------------
+
+    @property
+    def _bots_dir(self) -> Path:
+        return self.config.paths.config / BOTS_DIR_NAME
+
+    async def add_bot(
+        self, name: str, *, role: str = "", persona: str = "", color: str | None = None
+    ) -> BotAgent:
+        """Create a bot: it gets a definition file, a display, and starts listening."""
+
+        name = name.strip()
+        if not name:
+            raise ConfigError("a bot needs a name")
+        taken = {agent.id for agent in self.team.agents} | {
+            path.stem for path in self._bots_dir.glob("*.toml")
+        }
+        bot = BotDefinition(
+            id=new_bot_id(name, taken),
+            name=name,
+            role=role.strip(),
+            persona=persona.strip(),
+            color=color,
+        )
+        save_bot(self._bots_dir, bot)
+        self.config = replace(self.config, bots=(*self.config.bots, bot))
+        self.displays.register([bot.id])
+        await self.vnc.add(bot.id)
+        agent = self._make_agent(bot)
+        self.team.add([agent])
+        # Announced before it starts, so listeners know the bot before its status.
+        self.bus.publish(EventType.BOT_ADDED, bot=bot.id, **agent.to_dict())
+        agent.start()
+        log.info("added bot %s (%s)", bot.id, bot.name)
+        return agent
+
+    async def remove_bot(self, bot_id: str) -> None:
+        """Remove a bot: it stops, and its display closes. Its memories are kept."""
+
+        if len(self.team.agents) <= 1:
+            raise ConfigError("Pal needs at least one bot")
+        agent = self.team.remove(bot_id)
+        await agent.stop()
+        (self._bots_dir / f"{bot_id}.toml").unlink(missing_ok=True)
+        self.config = replace(
+            self.config, bots=tuple(b for b in self.config.bots if b.id != bot_id)
+        )
+        await self.vnc.remove(bot_id)
+        await self.displays.unregister(bot_id)
+        self.bus.publish(EventType.BOT_REMOVED, bot=bot_id)
+        log.info("removed bot %s", bot_id)
 
     def _prepare_directories(self) -> None:
         paths = self.config.paths
@@ -119,6 +181,7 @@ class PalRuntime:
             api_token=load_or_create_token(self.config.paths.secrets),
             auth_status=lambda: auth_status(self.config.paths.secrets),
             version=__version__,
+            bots=self,
         )
         self.api = ApiServer(create_app(ctx), self.config.api.host, self.config.api.port)
         await self.api.start()
@@ -126,7 +189,8 @@ class PalRuntime:
             asyncio.create_task(self.displays.run_idle_monitor(), name="display-idle-monitor")
         )
         self._background.append(asyncio.create_task(self.logins.run(), name="login-sync"))
-        log.info("Pal %s running with bots: %s", __version__, ", ".join(self.config.bot_ids))
+        names = ", ".join(agent.id for agent in self.team.agents) or "none yet"
+        log.info("Pal %s running with bots: %s", __version__, names)
 
     async def stop(self) -> None:
         for task in self._background:

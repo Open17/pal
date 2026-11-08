@@ -28,11 +28,14 @@ class SessionOptionsBuilder:
         tools: ToolRegistry,
         memory: MemoryService,
         displays: DisplayManager,
+        team: Callable[[], list[BotDefinition]] | None = None,
     ) -> None:
         self.config = config
         self.tools = tools
         self.memory = memory
         self.displays = displays
+        #: The current team; bots can be added and removed while Pal runs.
+        self.team = team or (lambda: list(config.bots))
 
     def build(
         self, bot: BotDefinition, settings: ModelSettings, *, resume: str | None
@@ -43,7 +46,7 @@ class SessionOptionsBuilder:
         prompt = system_prompt(
             PromptContext(
                 bot=bot,
-                teammates=[mate for mate in self.config.bots if mate.id != bot.id],
+                teammates=[mate for mate in self.team() if mate.id != bot.id],
                 paths=paths,
                 display=self.displays.get(bot.id).name,
                 idle_minutes=max(1, self.config.displays.idle_timeout_seconds // 60),

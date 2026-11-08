@@ -25,6 +25,8 @@ class EventType:
     BOT_TOOL_FINISHED = "bot.tool.finished"
     BOT_TURN_COMPLETED = "bot.turn.completed"
     BOT_SETTINGS_CHANGED = "bot.settings.changed"
+    BOT_ADDED = "bot.added"
+    BOT_REMOVED = "bot.removed"
     DISPLAY_STATE = "display.state"
 
 

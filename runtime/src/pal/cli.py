@@ -55,7 +55,7 @@ def _parser() -> argparse.ArgumentParser:
     status.set_defaults(handler=_status)
 
     chat = commands.add_parser("chat", help="chat with a bot from the terminal")
-    chat.add_argument("bot", help="bot id, e.g. atlas")
+    chat.add_argument("bot", help="bot id, e.g. pal")
     chat.add_argument("--url", default=DEFAULT_URL)
     chat.set_defaults(handler=_chat)
     return parser

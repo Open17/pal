@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import tomllib
 from dataclasses import fields
 from pathlib import Path
@@ -11,6 +13,7 @@ from typing import Any, TypeVar
 from .models import (
     DISPLAY_BACKENDS,
     PERMISSION_MODES,
+    RESERVED_IDS,
     AgentSettings,
     ApiSettings,
     BotDefinition,
@@ -91,6 +94,42 @@ def load_bots(bots_dir: Path) -> tuple[BotDefinition, ...]:
             raise ConfigError(f"{path}: duplicate bot id {bot.id!r}")
         bots[bot.id] = bot
     return tuple(bots[key] for key in sorted(bots))
+
+
+def new_bot_id(name: str, taken: set[str] | frozenset[str]) -> str:
+    """A bot id made from its name: ``"Research Pal"`` → ``"research-pal"``."""
+
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    base = re.sub(r"^[^a-z]+", "", base)[:28].strip("-") or "bot"
+    candidate, number = base, 2
+    while candidate in taken or candidate in RESERVED_IDS:
+        candidate = f"{base}-{number}"
+        number += 1
+    return candidate
+
+
+def save_bot(bots_dir: Path, bot: BotDefinition) -> Path:
+    """Write a bot's definition to ``bots_dir/<id>.toml``."""
+
+    validate_bot_id(bot.id, where="new bot")
+    if bot.effort is not None:
+        validate_effort(bot.effort, where="new bot")
+    lines = [f"id = {_toml_string(bot.id)}", f"name = {_toml_string(bot.name)}"]
+    for key in ("role", "color", "model", "effort"):
+        value = getattr(bot, key)
+        if value:
+            lines.append(f"{key} = {_toml_string(value)}")
+    if bot.persona:
+        lines.append(f"persona = {_toml_string(bot.persona)}")
+    bots_dir.mkdir(parents=True, exist_ok=True)
+    path = bots_dir / f"{bot.id}.toml"
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def _toml_string(value: str) -> str:
+    # JSON string escapes are valid in TOML basic strings.
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _load_bot(path: Path) -> BotDefinition:

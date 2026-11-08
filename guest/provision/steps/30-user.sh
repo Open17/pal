@@ -18,17 +18,20 @@ for dir in "$PAL_HOME/.config" "$PAL_HOME/.local" "$PAL_HOME/.local/share"; do
 done
 
 for dir in "$PAL_CONFIG" "$PAL_CONFIG/bots" "$PAL_CONFIG/displays" "$PAL_DATA" \
-    "$PAL_WORKSPACES" "$PAL_WORKSPACES/shared"; do
+    "$PAL_WORKSPACES"; do
     install -d -o "$PAL_USER" -g "$PAL_USER" "$dir"
 done
 install -d -m 0700 -o "$PAL_USER" -g "$PAL_USER" "$PAL_CONFIG/secrets"
 
 # Configuration is installed once; later edits inside the VM are kept.
 [[ -f $PAL_CONFIG/pal.toml ]] || install_as_pal 0644 "$PAL_SRC/config/pal.toml" "$PAL_CONFIG/pal.toml"
-for bot in "$PAL_SRC"/config/bots/*.toml; do
-    target="$PAL_CONFIG/bots/$(basename "$bot")"
-    [[ -f $target ]] || install_as_pal 0644 "$bot" "$target"
-done
+# The starter bot only goes into an empty team: bots are added and removed
+# from the app, and a removed one must stay removed.
+if ! compgen -G "$PAL_CONFIG/bots/*.toml" >/dev/null; then
+    for bot in "$PAL_SRC"/config/bots/*.toml; do
+        install_as_pal 0644 "$bot" "$PAL_CONFIG/bots/$(basename "$bot")"
+    done
+fi
 
 # Secrets staged by the image builder.
 secrets_in=$PROVISION_DIR/secrets

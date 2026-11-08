@@ -68,10 +68,75 @@ def test_config_check_command(capsys) -> None:
     assert main(["--config", str(REPO_CONFIG_DIR), "config", "check"]) == 0
     output = capsys.readouterr().out
     assert "claude-sonnet-5-5 (high effort)" in output
-    assert "atlas" in output and "forge" in output and "scout" in output
+    assert "pal" in output and "atlas" not in output  # one general-purpose bot to start
 
 
 def test_invalid_config_exits_with_error(tmp_path: Path, capsys) -> None:
     (tmp_path / "pal.toml").write_text("[model]\neffort = 'huge'\n")
     assert main(["--config", str(tmp_path), "config", "check"]) == 2
     assert "configuration error" in capsys.readouterr().err
+
+
+async def test_bots_are_added_and_removed_while_running(tmp_path: Path) -> None:
+    config = runtime_config(tmp_path)
+    runtime = PalRuntime(
+        config,
+        client_factory=lambda options: FakeClient(options, echo),
+        display_backend=InMemoryDisplayBackend(),
+    )
+    await runtime.start()
+    try:
+        token = (tmp_path / "cfg" / "secrets" / "api-token").read_text().strip()
+        base = f"http://127.0.0.1:{config.api.port}"
+        with runtime.bus.subscribe() as events:
+            async with (
+                aiohttp.ClientSession(base, headers={"Authorization": f"Bearer {token}"}) as s,
+                s.post("/v1/bots", json={"name": "Probe"}) as response,
+            ):
+                probe = (await response.json())["id"]
+            assert (await events.get()).type == "bot.added"
+        await runtime.remove_bot(probe)
+        async with aiohttp.ClientSession(base, headers={"Authorization": f"Bearer {token}"}) as s:
+            body = {"name": "Research Pal", "role": "Researcher", "persona": "Dig deep."}
+            async with s.post("/v1/bots", json=body) as response:
+                assert response.status == 201
+                created = await response.json()
+            assert created["id"] == "research-pal"
+            assert created["persona"] == "Dig deep."
+            saved = (tmp_path / "cfg" / "bots" / "research-pal.toml").read_text()
+            assert 'name = "Research Pal"' in saved
+            assert runtime.displays.get("research-pal").name == ":12"  # the probe's, freed
+
+            # The new bot answers, and its teammates know about it.
+            async with s.post("/v1/bots/research-pal/messages", json={"content": "hi"}) as r:
+                assert r.status == 202
+            for _ in range(100):
+                async with s.get("/v1/conversations/user--research-pal/messages") as r:
+                    if len((await r.json())["messages"]) == 2:
+                        break
+                await asyncio.sleep(0.02)
+            teammates = runtime._options.team()
+            assert [bot.id for bot in teammates] == ["atlas", "scout", "research-pal"]
+
+            # A second bot with the same name gets its own id.
+            async with s.post("/v1/bots", json={"name": "Research Pal"}) as response:
+                assert (await response.json())["id"] == "research-pal-2"
+
+            async with s.delete("/v1/bots/research-pal") as response:
+                assert response.status == 204
+            assert not (tmp_path / "cfg" / "bots" / "research-pal.toml").exists()
+            async with s.get("/v1/bots") as response:
+                ids = [bot["id"] for bot in (await response.json())["bots"]]
+            assert ids == ["atlas", "scout", "research-pal-2"]
+
+            for bot_id in ("atlas", "research-pal-2"):
+                async with s.delete(f"/v1/bots/{bot_id}") as response:
+                    assert response.status == 204
+            async with s.delete("/v1/bots/scout") as response:
+                assert response.status == 400  # the last bot stays
+            async with s.delete("/v1/bots/ghost") as response:
+                assert response.status == 404
+            async with s.post("/v1/bots", json={"name": "  "}) as response:
+                assert response.status == 400
+    finally:
+        await runtime.stop()

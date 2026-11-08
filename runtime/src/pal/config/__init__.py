@@ -1,6 +1,15 @@
 """Runtime configuration."""
 
-from .loader import CONFIG_DIR_ENV, default_config_dir, expand_path, load_bots, load_config
+from .loader import (
+    BOTS_DIR_NAME,
+    CONFIG_DIR_ENV,
+    default_config_dir,
+    expand_path,
+    load_bots,
+    load_config,
+    new_bot_id,
+    save_bot,
+)
 from .models import (
     DEFAULT_EFFORT,
     DEFAULT_MODEL,
@@ -21,6 +30,7 @@ from .models import (
 )
 
 __all__ = [
+    "BOTS_DIR_NAME",
     "CONFIG_DIR_ENV",
     "DEFAULT_EFFORT",
     "DEFAULT_MODEL",
@@ -41,5 +51,7 @@ __all__ = [
     "expand_path",
     "load_bots",
     "load_config",
+    "new_bot_id",
+    "save_bot",
     "validate_effort",
 ]

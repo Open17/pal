@@ -36,29 +36,40 @@ class VncProxy:
         self.upstream_host = upstream_host
         self.connect_timeout = connect_timeout
         self.activity_interval = activity_interval
-        self._servers: list[asyncio.Server] = []
+        self._servers: dict[str, asyncio.Server] = {}
 
     async def start(self) -> None:
         for display in self.manager.all():
-            server = await asyncio.start_server(
-                lambda r, w, owner=display.owner: self._handle(owner, r, w),
-                host=self.bind_host,
-                port=display.vnc_public_port,
-            )
-            self._servers.append(server)
-            log.info(
-                "VNC for %s (%s) on %s:%d",
-                display.owner,
-                display.name,
-                self.bind_host,
-                display.vnc_public_port,
-            )
+            await self.add(display.owner)
+
+    async def add(self, owner: str) -> None:
+        """Start serving one display (a bot added while running)."""
+
+        if owner in self._servers:
+            return
+        display = self.manager.get(owner)
+        self._servers[owner] = await asyncio.start_server(
+            lambda r, w: self._handle(owner, r, w),
+            host=self.bind_host,
+            port=display.vnc_public_port,
+        )
+        log.info(
+            "VNC for %s (%s) on %s:%d",
+            owner,
+            display.name,
+            self.bind_host,
+            display.vnc_public_port,
+        )
+
+    async def remove(self, owner: str) -> None:
+        server = self._servers.pop(owner, None)
+        if server is not None:
+            server.close()
+            await server.wait_closed()
 
     async def close(self) -> None:
-        for server in self._servers:
-            server.close()
-        await asyncio.gather(*(server.wait_closed() for server in self._servers))
-        self._servers.clear()
+        for owner in list(self._servers):
+            await self.remove(owner)
 
     async def _handle(
         self, owner: str, client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter
