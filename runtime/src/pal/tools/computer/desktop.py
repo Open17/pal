@@ -157,9 +157,11 @@ class Desktop:
         width, height = (await self.run("xdotool", "getdisplaygeometry")).split()
         return int(width), int(height)
 
-    async def recognize_text(self, image: Path) -> str:
+    async def recognize_text(self, image: Path, *, layout: int = 11) -> str:
+        """Tesseract's TSV word boxes; ``layout`` is its page segmentation mode."""
+
         return await self.run(
-            "tesseract", str(image), "stdout", "--psm", "11", "tsv", time_limit=60
+            "tesseract", str(image), "stdout", "--psm", str(layout), "tsv", time_limit=60
         )
 
     # -- pointer -----------------------------------------------------------

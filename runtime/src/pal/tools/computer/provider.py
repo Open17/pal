@@ -19,6 +19,10 @@ from .desktop import Desktop, DesktopError
 
 #: Screenshots are scaled to fit this box; coordinates map back to the screen.
 MAX_SCREENSHOT = (1280, 800)
+#: Screens narrower than this are enlarged before text recognition.
+OCR_ENLARGE_BELOW = 2000
+#: Tesseract page segmentation modes: sparse text, automatic, single column.
+OCR_LAYOUTS = (11, 3, 4)
 
 _POINT = {"type": "integer", "minimum": 0}
 
@@ -356,20 +360,45 @@ class ComputerTools(ToolProvider):
 
         desktop = self.desktop(bot_id)
         path = await desktop.screenshot()
-        lines = ocr.parse_tsv(await desktop.recognize_text(path))
+        prepared, enlarged = await asyncio.to_thread(_prepare_for_ocr, path)
+        # Each layout mode misses text the others read: sparse mode finds
+        # scattered interface text, automatic and single-column layout read runs
+        # of text and lone characters. Run in parallel, all three take about as
+        # long as one.
+        readings = await asyncio.gather(
+            *(desktop.recognize_text(prepared, layout=layout) for layout in OCR_LAYOUTS)
+        )
+        lines = ocr.group_lines(ocr.merge(*(ocr.parse_words(tsv) for tsv in readings)))
         if bot_id not in self._scale:
             _, _, self._scale[bot_id] = await asyncio.to_thread(_fit, path)
-        scale = self._scale[bot_id]
-        if scale == 1:
+        factor = self._scale[bot_id] * enlarged
+        if factor == 1:
             return lines
         return [
             ocr.Line(
                 line.text,
-                line.box.scaled(scale),
-                tuple(ocr.Word(w.text, w.box.scaled(scale), w.line) for w in line.words),
+                line.box.scaled(factor),
+                tuple(ocr.Word(w.text, w.box.scaled(factor), w.confidence) for w in line.words),
             )
             for line in lines
         ]
+
+
+def _prepare_for_ocr(path: Path) -> tuple[Path, int]:
+    """A grayscale copy for text recognition, enlarged when the screen's text is small.
+
+    Text recognition misses most interface text at ordinary screen sizes; at
+    twice the size it reads menus, titles and window contents reliably.
+    """
+
+    with Image.open(path) as image:
+        enlarge = 2 if image.width < OCR_ENLARGE_BELOW else 1
+        gray = image.convert("L")
+        if enlarge > 1:
+            gray = gray.resize((image.width * enlarge, image.height * enlarge), Image.LANCZOS)
+        prepared = path.with_name(f"{path.stem}-ocr.png")
+        gray.save(prepared)
+        return prepared, enlarge
 
 
 def _fit(path: Path) -> tuple[bytes, tuple[int, int], float]:

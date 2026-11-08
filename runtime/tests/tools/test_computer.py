@@ -71,13 +71,39 @@ def test_ocr_lines_and_search() -> None:
     assert ocr.find(lines, "Canc")  # partial last word, as you'd type it
 
 
+def word(text: str, left: int, top: int, width: int, height: int, confidence: float = 95):
+    return ocr.Word(text, ocr.Box(left, top, width, height), confidence)
+
+
+def test_lines_are_grouped_by_position() -> None:
+    # Real word boxes from an editor (2x screen), which Tesseract put in separate
+    # blocks, and a menu bar whose items are farther apart than words are.
+    words = [
+        word("row", 21, 184, 49, 16), word("number", 91, 178, 103, 22), word("0", 216, 180, 14, 20),
+        word("row", 21, 220, 49, 16), word("number", 91, 214, 103, 22), word("1", 218, 216, 12, 20),
+        word("Edit", 103, 130, 41, 20), word("Search", 180, 131, 78, 19),
+    ]  # fmt: skip
+    lines = [line.text for line in ocr.group_lines(words)]
+    assert lines == ["Edit", "Search", "row number 0", "row number 1"]
+    ((_, box),) = ocr.find(ocr.group_lines(words), "row number 1")
+    assert box == ocr.Box(21, 214, 209, 22)
+
+
+def test_readings_are_merged_keeping_the_surer_word() -> None:
+    sparse = [word("number", 91, 178, 103, 22, 96), word("O", 216, 180, 14, 20, 50)]
+    automatic = [word("0", 217, 181, 13, 19, 93), word("row", 21, 184, 49, 16, 92)]
+    merged = ocr.merge(sparse, automatic)
+    assert sorted(w.text for w in merged) == ["0", "number", "row"]
+
+
 class FakeDesktop(Desktop):
     calls: list[tuple] = []
+    screen = (2560, 1600)
 
     async def run(self, *args, stdin=None, time_limit=20):
         FakeDesktop.calls.append(args)
         if args[0] == "scrot":
-            Image.new("RGB", (2560, 1600), "white").save(args[-1])
+            Image.new("RGB", FakeDesktop.screen, "white").save(args[-1])
         if args[0] == "tesseract":
             return TSV
         if args[0] == "wmctrl" and args[1] == "-lpGx":
@@ -88,6 +114,7 @@ class FakeDesktop(Desktop):
 @pytest.fixture
 def computer(tmp_path: Path, monkeypatch) -> ComputerTools:
     FakeDesktop.calls = []
+    FakeDesktop.screen = (2560, 1600)
     displays = DisplayManager(
         DisplaySettings(backend="simulated"), InMemoryDisplayBackend(), tmp_path / "d.json"
     )
@@ -151,6 +178,15 @@ async def test_tools_wake_the_display_first(computer: ComputerTools) -> None:
     assert computer.displays.get("atlas").state == "stopped"
     await handlers(computer)["list_windows"]({})
     assert computer.displays.get("atlas").state == "running"
+
+
+async def test_small_screens_are_enlarged_for_text_recognition(computer: ComputerTools) -> None:
+    # On a 1280x800 screen the recognizer reads a 2x copy, so its boxes are halved.
+    FakeDesktop.screen = (1280, 800)
+    found = text(await handlers(computer)["find_text"]({"text": "cancel"}))
+    assert found == "Found “cancel” at:\n(215, 153) in “Cancel”"
+    ocr_call = next(call for call in FakeDesktop.calls if call[0] == "tesseract")
+    assert ocr_call[1].endswith("screen-atlas-ocr.png")
 
 
 async def test_drag_moves_in_steps_with_the_button_held(computer: ComputerTools) -> None:
