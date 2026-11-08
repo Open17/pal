@@ -89,7 +89,7 @@ struct ConversationView: View {
         .confirmationDialog("Remove \(pal.name) from the team?", isPresented: $confirmRemove) {
             Button("Remove \(pal.name)", role: .destructive) { store.removeBot(pal.id) }
         } message: {
-            Text("\(pal.name) stops and their display closes. Their memories and your conversation history are kept.")
+            Text("Your conversation with \(pal.name), their private memory and everything on their computer’s screen are deleted. Shared memory and the team’s files stay. This can’t be undone.")
         }
         .confirmationDialog("Start a new conversation with \(pal.name)?", isPresented: $confirmReset) {
             Button("New Conversation") { store.resetSession(pal.id) }

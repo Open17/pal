@@ -164,7 +164,7 @@ private struct Sidebar: View {
         ) { pal in
             Button("Remove \(pal.name)", role: .destructive) { store.removeBot(pal.id) }
         } message: { pal in
-            Text("\(pal.name) stops and their display closes. Their memories and your conversation history are kept.")
+            Text("Your conversation with \(pal.name), their private memory and everything on their computer’s screen are deleted. Shared memory and the team’s files stay. This can’t be undone.")
         }
         .confirmationDialog(
             "Start a new conversation with \(resetting?.name ?? "this bot")?",

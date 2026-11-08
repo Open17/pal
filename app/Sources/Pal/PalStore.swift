@@ -233,6 +233,22 @@ final class PalStore {
         open(created.id)
     }
 
+    /// Drops what the app holds for a removed bot, as the runtime deleted it,
+    /// so a new bot with the same name starts with an empty chat.
+    private func forget(_ id: String) {
+        for message in messages[id] ?? [] { reactions[message.id] = nil }
+        messages[id] = nil
+        unread[id] = nil
+        drafts[id] = nil
+        replyingTo[id] = nil
+        scrollSpots[id] = nil
+        botMemory[id] = nil
+        let gone = { (conversation: String) in conversation.components(separatedBy: "--").contains(id) }
+        teamMessages = teamMessages.filter { !gone($0.key) }
+        teamConversations.removeAll { gone($0.id) }
+        setDisplayOpen(false, for: id)
+    }
+
     func removeBot(_ id: String) {
         perform { [self] in
             try await client.run("DELETE", "/v1/bots/\(id)")
@@ -357,7 +373,10 @@ final class PalStore {
             }
         case .botUpdated(let updated):
             apply(updated)
-        case .botAdded, .botRemoved:
+        case .botAdded:
+            await refreshStatus()
+        case .botRemoved(let id):
+            forget(id)
             await refreshStatus()
         case .display(let display):
             if let i = displays.firstIndex(where: { $0.owner == display.owner }) {
