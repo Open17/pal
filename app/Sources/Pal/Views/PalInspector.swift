@@ -37,8 +37,7 @@ struct PalInspector: View {
             }
 
             Section("Computer") {
-                LabeledContent("Display", value: display?.display ?? "—")
-                LabeledContent("State", value: display.map { DisplayState.label($0.state) } ?? "—")
+                LabeledContent("Screen", value: display.map { DisplayState.label($0.state) } ?? "—")
                 LabeledContent("Main folder") {
                     Text("~/workspaces (shared)")
                         .font(.system(size: 11.5, design: .monospaced))
