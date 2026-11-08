@@ -52,6 +52,12 @@ class ConversationLog:
             messages = messages[:index]
         return messages[-limit:] if limit > 0 else messages
 
+    async def find(self, conversation: str, message_id: str) -> Message | None:
+        """One message of a conversation by id, or None."""
+
+        messages = await asyncio.to_thread(_read_messages, self.path_for(conversation))
+        return next((m for m in messages if m.id == message_id), None)
+
     async def conversations(self) -> list[ConversationSummary]:
         def summarize() -> list[ConversationSummary]:
             if not self.root.is_dir():

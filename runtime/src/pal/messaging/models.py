@@ -11,13 +11,18 @@ from typing import Any, Literal
 
 from pal.config import USER_ID
 
-MessageKind = Literal["chat", "request", "reply", "notice"]
+MessageKind = Literal["chat", "request", "reply", "notice", "reaction"]
 """
 - ``chat``: a message between the user and a bot.
 - ``request``: a bot asks another bot and waits for an answer.
 - ``reply``: the answer to a ``request``.
 - ``notice``: a bot tells another bot something without waiting.
+- ``reaction``: an emoji on the message named by ``reply_to``. A sender has one
+  reaction per message: a later one replaces it, and an empty one removes it.
 """
+
+#: Long enough for any emoji sequence (flags, skin tones, families).
+MAX_REACTION_LENGTH = 16
 
 
 _id_lock = threading.Lock()
@@ -51,6 +56,24 @@ def conversation_id(a: str, b: str) -> str:
     if a != USER_ID and b < a:
         a, b = b, a
     return f"{a}--{b}"
+
+
+def clean_reaction(emoji: str, *, allow_empty: bool) -> str:
+    """A reaction as stored: trimmed, short, and non-empty unless removing one."""
+
+    emoji = emoji.strip()
+    if not emoji and not allow_empty:
+        raise ValueError("a reaction needs an emoji")
+    if len(emoji) > MAX_REACTION_LENGTH or any(c.isspace() for c in emoji):
+        raise ValueError("a reaction is a single emoji")
+    return emoji
+
+
+def excerpt(text: str, limit: int = 120) -> str:
+    """One line of a message, for quoting it back to a bot."""
+
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
 
 
 def participants(conversation: str) -> tuple[str, str]:
