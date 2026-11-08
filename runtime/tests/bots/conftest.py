@@ -59,7 +59,7 @@ class TeamHarness:
         async with asyncio.timeout(2.0):
             while True:
                 for logged in await self.messenger.log.read(message.conversation_id):
-                    if logged.reply_to == message.id:
+                    if logged.reply_to == message.id and logged.kind != "reaction":
                         return logged
                 await asyncio.sleep(0.01)
 
