@@ -1,0 +1,279 @@
+#!/usr/bin/python3
+"""Remember the windows open on a Pal display, and open them again.
+
+    DISPLAY=:10 PAL_DISPLAY_OWNER=atlas pal-windows save
+    DISPLAY=:10 PAL_DISPLAY_OWNER=atlas pal-windows restore
+
+A display that sleeps keeps its windows (it is frozen, not closed), but one
+that is stopped, or a computer that restarts, loses them. ``save`` records
+every program with a window open (how to start it again, from which folder)
+and where each window sits; the runtime saves every minute and before a
+display stops. ``restore`` runs when a display starts: it starts the programs
+again and puts their windows back. Browsers reopen their own tabs.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HOME = Path.home()
+STATE_DIR = HOME / ".local/state/pal/windows"
+BROWSER_PROFILES = HOME / ".local/share/pal/browsers"
+RESTORE_WAIT = 25.0
+
+#: Desktop furniture, which the session starts by itself.
+SKIP = {
+    "xfce4-panel", "xfdesktop", "xfwm4", "xfce4-notifyd", "xfsettingsd", "xfce4-session",
+    "xfce4-screensaver", "polkit-gnome-authentication-agent-1", "Xvnc",
+}  # fmt: skip
+TERMINALS = {"xfce4-terminal"}
+
+
+class DisplayGone(RuntimeError):
+    """The display can't be reached (it is stopping, or stopped)."""
+
+
+def run(*args: str) -> str:
+    return subprocess.run(args, capture_output=True, text=True, timeout=15).stdout
+
+
+def shutting_down() -> bool:
+    state = subprocess.run(["systemctl", "is-system-running"], capture_output=True, text=True)
+    return state.stdout.strip() == "stopping"
+
+
+def windows() -> list[dict]:
+    """Normal windows on this display (wmctrl -lpG), skipping desktop furniture."""
+
+    listing = subprocess.run(["wmctrl", "-lpG"], capture_output=True, text=True, timeout=15)
+    if listing.returncode != 0:
+        raise DisplayGone(listing.stderr.strip() or "wmctrl failed")
+    found = []
+    for line in listing.stdout.splitlines():
+        parts = line.split(None, 8)
+        if len(parts) < 8 or parts[1] == "-1":
+            continue
+        window_id, _, pid, x, y, width, height = parts[:7]
+        title = parts[8] if len(parts) > 8 else ""
+        properties = run("xprop", "-id", window_id, "WM_CLASS", "_NET_WM_STATE")
+        # WM_CLASS = "instance", "Class": the class names the program.
+        classes = re.findall(r'"([^"]*)"', properties.split("\n", 1)[0])
+        found.append(
+            {
+                "id": window_id,
+                "pid": int(pid),
+                "class": classes[-1] if classes else "",
+                "title": title,
+                "geometry": [int(x), int(y), int(width), int(height)],
+                "maximized": "MAXIMIZED_VERT" in properties and "MAXIMIZED_HORZ" in properties,
+            }
+        )
+    return found
+
+
+def geometry(window_id: str) -> list[int] | None:
+    for line in run("wmctrl", "-lG").splitlines():
+        parts = line.split(None, 6)
+        if parts and parts[0] == window_id and len(parts) >= 6:
+            return [int(value) for value in parts[2:6]]
+    return None
+
+
+def process(pid: int) -> tuple[list[str], str, str] | None:
+    """A process's command line, working directory and program name."""
+
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        cwd = os.readlink(f"/proc/{pid}/cwd")
+        name = Path(f"/proc/{pid}/comm").read_text().strip()
+    except OSError:
+        return None
+    return [arg.decode(errors="replace") for arg in argv if arg], cwd, name
+
+
+def children(pid: int) -> list[int]:
+    try:
+        return [int(p) for p in Path(f"/proc/{pid}/task/{pid}/children").read_text().split()]
+    except OSError:
+        return []
+
+
+def launches(pid: int, argv: list[str], cwd: str, name: str, wins: list[dict]) -> list[dict]:
+    """How to start a program again, one entry per start."""
+
+    program = Path(argv[0]).name if argv else name
+    if program in SKIP or name in SKIP:
+        return []
+    # (Chromium rewrites its process title, so its arguments may be one string.)
+    profile_flag = re.search(r"--user-data-dir=(\S+)", " ".join(argv))
+    if profile_flag and profile_flag.group(1).startswith(str(BROWSER_PROFILES)):
+        # A bot's browser: its launcher starts it with the right profile, and
+        # the browser reopens its own windows and tabs.
+        profile = profile_flag.group(1)
+        return [{"argv": ["pal-chromium"], "cwd": cwd, "windows": wins, "profile": profile}]
+    if program in TERMINALS or name in TERMINALS:
+        # One terminal per window, in the folder its shell was last in.
+        folders = [info[1] for child in children(pid) if (info := process(child)) is not None]
+        entries = []
+        for index, win in enumerate(wins):
+            folder = folders[index] if index < len(folders) else cwd
+            args = [program, f"--working-directory={folder}"]
+            entries.append({"argv": args, "cwd": folder, "windows": [win]})
+        return entries
+    if program == "mousepad":
+        # Reopen each window's file, read from its title ("~/notes.txt - Mousepad").
+        entries = []
+        for win in wins:
+            match = re.match(r"^\*?(.+?) - Mousepad$", win["title"])
+            path = (match.group(1) if match else "").replace("~", str(HOME), 1)
+            args = [program, path] if path.startswith("/") and Path(path).exists() else [program]
+            entries.append({"argv": args, "cwd": cwd, "windows": [win]})
+        return entries
+    if program.lower() == "thunar":
+        # The file manager runs as a background service; reopen each window's
+        # folder, found from its title ("workspaces - Thunar").
+        entries = []
+        for win in wins:
+            name = re.sub(r" - (File Manager|Thunar)$", "", win["title"]).strip()
+            entries.append({"argv": ["thunar", folder_named(name)], "cwd": cwd, "windows": [win]})
+        return entries
+    # Background-service flags would start the program without a window.
+    argv = [arg for arg in argv if arg not in ("--daemon", "--gapplication-service")]
+    return [{"argv": argv, "cwd": cwd, "windows": wins}]
+
+
+def folder_named(name: str) -> str:
+    """The folder a window shows, from just its name: the team's folders first."""
+
+    if not name or name == HOME.name:
+        return str(HOME)
+    if name == "/" or name == "File System":
+        return "/"
+    for root in (HOME / "workspaces", HOME):
+        if root.name == name:
+            return str(root)
+        for depth in ("*", "*/*", "*/*/*"):
+            for match in sorted(root.glob(f"{depth}/{name}")):
+                if match.is_dir():
+                    return str(match)
+    return str(HOME)
+
+
+def save(path: Path) -> int:
+    # While the computer shuts down, programs are closing: what's left is not
+    # what was open. The regular saves before it are what to reopen.
+    if shutting_down():
+        return 0
+    by_pid: dict[int, list[dict]] = {}
+    try:
+        for win in windows():
+            by_pid.setdefault(win["pid"], []).append(win)
+    except DisplayGone as exc:
+        # Never replace a save with "nothing open" because the display is gone.
+        print(f"pal-windows: not saving, the display is unreachable: {exc}", file=sys.stderr)
+        return 1
+    apps = []
+    for pid, wins in by_pid.items():
+        info = process(pid)
+        if info is None:
+            continue
+        for entry in launches(pid, *info, wins):
+            for win in entry["windows"]:
+                win.pop("id", None)
+                win.pop("pid", None)
+            apps.append(entry)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"saved_at": time.time(), "apps": apps}, indent=1))
+    temporary.replace(path)
+    return 0
+
+
+def mark_clean_exit(profile: str) -> None:
+    """A browser that was stopped would offer to restore instead of restoring."""
+
+    preferences = Path(profile) / "Default" / "Preferences"
+    try:
+        data = json.loads(preferences.read_text())
+    except (OSError, ValueError):
+        return
+    data.setdefault("profile", {}).update({"exit_type": "Normal", "exited_cleanly": True})
+    preferences.write_text(json.dumps(data))
+
+
+def restore(path: Path) -> int:
+    try:
+        apps = json.loads(path.read_text()).get("apps", [])
+    except (OSError, ValueError):
+        return 0
+    existing = {line.split()[0] for line in run("wmctrl", "-l").splitlines() if line}
+    wanted: list[dict] = []
+    for app in apps:
+        if app.get("profile"):
+            mark_clean_exit(app["profile"])
+        cwd = app.get("cwd") if app.get("cwd") and Path(app["cwd"]).is_dir() else str(HOME)
+        subprocess.run(["pal-open", *app["argv"]], cwd=cwd, check=False)
+        wanted.extend(app["windows"])
+    place(wanted, existing)
+    return 0
+
+
+def place(wanted: list[dict], existing: set[str]) -> None:
+    """Put reopened windows back where they were, matching them by program."""
+
+    deadline = time.monotonic() + RESTORE_WAIT
+    pending = list(wanted)
+    placed: set[str] = set(existing)
+    while pending and time.monotonic() < deadline:
+        time.sleep(1.0)
+        try:
+            current = windows()
+        except DisplayGone:
+            return
+        for win in current:
+            if win["id"] in placed:
+                continue
+            match = next((w for w in pending if w["class"] == win["class"]), None)
+            if match is None:
+                continue
+            placed.add(win["id"])
+            pending.remove(match)
+            move(win["id"], match)
+
+
+def move(window_id: str, saved: dict) -> None:
+    """Give a window its saved place, size and maximized state."""
+
+    def wmctrl(*args: str) -> None:
+        subprocess.run(["wmctrl", "-i", "-r", window_id, *args], check=False)
+
+    x, y, width, height = saved["geometry"]
+    wmctrl("-b", "remove,maximized_vert,maximized_horz")
+    wmctrl("-e", f"0,{x},{y},{width},{height}")
+    # Positions are set for the frame but read for the window inside it: move
+    # again by the difference, so a window doesn't creep on every restore.
+    time.sleep(0.3)
+    landed = geometry(window_id)
+    if landed is not None and (landed[0], landed[1]) != (x, y):
+        wmctrl("-e", f"0,{2 * x - landed[0]},{2 * y - landed[1]},{width},{height}")
+    if saved.get("maximized"):
+        wmctrl("-b", "add,maximized_vert,maximized_horz")
+
+
+def main() -> int:
+    if len(sys.argv) != 2 or sys.argv[1] not in ("save", "restore"):
+        print("usage: pal-windows save|restore", file=sys.stderr)
+        return 2
+    owner = os.environ.get("PAL_DISPLAY_OWNER") or os.environ.get("DISPLAY", ":0").lstrip(":")
+    path = STATE_DIR / f"{owner}.json"
+    return save(path) if sys.argv[1] == "save" else restore(path)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

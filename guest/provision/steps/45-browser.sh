@@ -31,8 +31,8 @@ x-scheme-handler/http=chromium.desktop
 x-scheme-handler/https=chromium.desktop
 MIME
 
-# The address bar searches with the engine the user chose, and new browsers
-# start on the new tab page. Policies apply to every profile, old and new.
+# The address bar searches with the engine the user chose, and a browser
+# reopens the windows and tabs it had. Policies apply to every profile.
 install -d /etc/chromium/policies/managed
 cat >/etc/chromium/policies/managed/pal.json <<'POLICY'
 {
@@ -42,7 +42,7 @@ cat >/etc/chromium/policies/managed/pal.json <<'POLICY'
   "DefaultSearchProviderSearchURL": "https://www.google.com/search?q={searchTerms}",
   "DefaultSearchProviderSuggestURL": "https://www.google.com/complete/search?client=chrome&q={searchTerms}",
   "DefaultSearchProviderIconURL": "https://www.google.com/favicon.ico",
-  "RestoreOnStartup": 5,
+  "RestoreOnStartup": 1,
   "HomepageIsNewTabPage": true
 }
 POLICY

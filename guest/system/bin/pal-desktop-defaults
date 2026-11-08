@@ -12,8 +12,10 @@ set_property() {
         xfconf-query -c "$1" -p "$2" -n -t "$3" -s "$4"
 }
 
-# Save each display's session so session-aware applications reopen.
-set_property xfce4-session /general/SaveOnExit bool true
+# Windows are remembered and reopened by pal-windows; a saved desktop session
+# would open some programs a second time.
+set_property xfce4-session /general/SaveOnExit bool false
+rm -f "$HOME"/.cache/sessions/xfce4-session-* 2>/dev/null || true
 set_property xfce4-session /general/PromptOnLogout bool false
 # Suspending from a desktop would suspend the whole VM.
 set_property xfce4-session /shutdown/ShowSuspend bool false

@@ -66,17 +66,19 @@ export PAL_DISPLAY_OWNER=$owner
 xset s off -dpms 2>/dev/null || true
 
 # Report the display ready once a window manager manages it, so whatever
-# started it can open windows straight away. Gives up waiting after 20s.
+# started it can open windows straight away (gives up waiting after 20s), then
+# reopen the windows that were open when the display last turned off.
 (
     for _ in $(seq 1 200); do
         wmctrl -l >/dev/null 2>&1 && break
         sleep 0.1
     done
     NOTIFY_SOCKET=$notify_socket systemd-notify --ready
+    /opt/pal/bin/pal-windows restore || true
 ) &
 
-# Each display gets a private session bus. Its address is recorded so the
-# stop hook can ask this session to save itself.
+# Each display gets a private session bus, recorded so that programs opened
+# with pal-open use it (and each display can run its own copy of a program).
 exec dbus-run-session -- bash -c '
     printf "%s\n" "$DBUS_SESSION_BUS_ADDRESS" >"$1"
     /opt/pal/bin/pal-desktop-defaults || true
