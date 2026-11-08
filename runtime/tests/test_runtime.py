@@ -193,6 +193,11 @@ async def test_bot_color_changes_while_running(tmp_path: Path) -> None:
             assert (body["color"], body["effort"]) == ("#EC5B9A", "high")
             async with s.post("/v1/bots", json={"name": "Smudge", "color": "red"}) as response:
                 assert response.status == 400
+            # "mono" follows the app's light or dark mode.
+            async with s.patch("/v1/bots/painter", json={"color": "Mono"}) as response:
+                assert (await response.json())["color"] == "mono"
+            saved = (tmp_path / "cfg" / "bots" / "painter.toml").read_text()
+            assert 'color = "mono"' in saved
             async with s.patch("/v1/bots/ghost", json={"color": "#000000"}) as response:
                 assert response.status == 404
     finally:
