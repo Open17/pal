@@ -10,7 +10,7 @@ guest/
   system/       files installed into the VM
     systemd/system/ pal-guest-agent.service
     systemd/user/   pal-runtime.service, pal-display@.service
-    bin/            pal-display-session, pal-display-save, pal-desktop-defaults
+    bin/            pal-display-session, pal-windows, pal-desktop-defaults, pal-open, ...
 ```
 
 ## Inside the VM

@@ -83,7 +83,10 @@ async def test_idle_displays_sleep_and_wake(tmp_path: Path, backend, clock) -> N
 
     await manager.ensure_awake("atlas")
     assert manager.get("atlas").state == "running"
-    assert backend.calls == [("start", "atlas"), ("freeze", "atlas"), ("thaw", "atlas")]
+    # Its windows are saved as it falls asleep, should the computer then stop.
+    assert backend.calls == [
+        ("start", "atlas"), ("save", "atlas"), ("freeze", "atlas"), ("thaw", "atlas"),
+    ]  # fmt: skip
 
 
 async def test_activity_postpones_sleep(tmp_path: Path, backend, clock) -> None:
@@ -199,3 +202,24 @@ async def test_a_working_bots_display_stays_awake(tmp_path: Path, backend, clock
     assert await manager.sleep_idle() == []
     clock.now += 100
     assert await manager.sleep_idle() == ["atlas"]
+
+
+async def test_open_windows_are_saved_to_reopen_later(tmp_path: Path, backend, clock) -> None:
+    manager = make_manager(tmp_path, backend, clock)
+    await manager.ensure_awake("atlas")
+    # Just started: its windows are still being reopened, so not saved yet.
+    await manager.save_windows()
+    assert ("save", "atlas") not in backend.calls
+    clock.now += 60
+    await manager.save_windows()
+    assert backend.calls.count(("save", "atlas")) == 1  # only awake displays
+
+    # Stopping saves first, so the windows come back with the display, then
+    # lets programs close cleanly (a browser keeps its tabs) before stopping.
+    async def close_programs(owner: str) -> None:
+        backend.calls.append(("close programs", owner))
+
+    manager.before_stop.append(close_programs)
+    backend.calls.clear()
+    await manager.stop("atlas")
+    assert backend.calls == [("save", "atlas"), ("close programs", "atlas"), ("stop", "atlas")]

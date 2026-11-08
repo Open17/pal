@@ -129,6 +129,33 @@ class Browsers:
             await asyncio.sleep(0.5)
         raise BrowserError("your browser did not start within 30 seconds")
 
+    async def quit(self, owner: str) -> None:
+        """Quit the owner's browser the way a person would, if it is running.
+
+        A browser that is quit saves its windows and tabs and reopens them
+        next time; one that is killed (its display stopping) loses the latest.
+        """
+
+        try:
+            context = await asyncio.wait_for(self.context(owner, launch=False), 10)
+        except Exception:
+            return
+        browser = self._browsers.get(owner)
+        if context is None or browser is None:
+            return
+        try:
+            cdp = await browser.new_browser_cdp_session()
+            await asyncio.wait_for(cdp.send("Browser.close"), 10)
+        except Exception:
+            pass  # the connection drops as the browser closes
+        endpoint = self.endpoint(owner)
+        for _ in range(40):
+            if not await _devtools_ready(endpoint):
+                break
+            await asyncio.sleep(0.25)
+        self._forget(owner)
+        log.info("quit %s's browser", owner)
+
     def _forget(self, owner: str) -> None:
         self._browsers.pop(owner, None)
         self._contexts.pop(owner, None)

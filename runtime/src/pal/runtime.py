@@ -60,6 +60,8 @@ class PalRuntime:
         self.displays.is_working = self.team.is_working
 
         self.browsers = Browsers(self.displays, paths.data / "cache" / "screens")
+        # Browsers quit cleanly before their display stops, keeping their tabs.
+        self.displays.before_stop.append(self.browsers.quit)
         self.logins = LoginSync(
             self.browsers, self.displays, paths.data / "browsers" / "logins.json"
         )
@@ -194,6 +196,22 @@ class PalRuntime:
         log.info("Pal %s running with bots: %s", __version__, names)
 
     async def stop(self) -> None:
+        # The computer may be shutting down: remember what's open to reopen it,
+        # and quit the browsers so they keep their tabs. (Not when only the
+        # runtime restarts: its displays and browsers carry on.)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(self.displays.save_windows(), 30)
+            if await _computer_shutting_down():
+                await asyncio.wait_for(
+                    asyncio.gather(
+                        *(
+                            self.browsers.quit(display.owner)
+                            for display in self.displays.all()
+                            if display.state == "running"  # asleep, they're frozen
+                        )
+                    ),
+                    30,
+                )
         for task in self._background:
             task.cancel()
         for task in self._background:
@@ -219,3 +237,14 @@ class PalRuntime:
             await stopping.wait()
         finally:
             await self.stop()
+
+
+async def _computer_shutting_down() -> bool:
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "systemctl", "is-system-running", stdout=asyncio.subprocess.PIPE
+        )
+        output, _ = await process.communicate()
+    except OSError:
+        return False
+    return output.decode().strip() == "stopping"

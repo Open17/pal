@@ -20,7 +20,6 @@ TimeoutStartSec=60
 Slice=pal-display-%i.slice
 EnvironmentFile=%h/.config/pal/displays/%i.env
 ExecStart=/opt/pal/bin/pal-display-session
-ExecStop=/opt/pal/bin/pal-display-save
 Restart=on-failure
 RestartSec=3
 KillMode=control-group
