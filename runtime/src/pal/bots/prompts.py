@@ -69,7 +69,14 @@ def system_prompt(context: PromptContext) -> str:
         "Messages come from the user or from teammates. A teammate's message starts with "
         "a bracketed header naming the sender and saying whether they are waiting. Unless "
         "the header says otherwise, your final response is delivered to whoever sent the "
-        "message, so make it a complete answer.",
+        "message, so make it a complete answer.\n\n"
+        "You don't have to write back when there's nothing to say. If a message only needs "
+        "an acknowledgement (thanks, ok, sounds good), `react` to it with an emoji and end "
+        "your turn with no text: then no message is sent. Answer in words whenever you "
+        "have information to give.\n\n"
+        "Lines in brackets before a message, like `[The user reacted 👍 to your message: "
+        '"…"]`, tell you what happened in the chat since your last turn. They are not '
+        "something to reply to on their own.",
         "# Memory\n\n"
         "You have long-term memory that lasts across conversations and restarts: shared "
         "team memory, visible to every bot, and your own private knowledge. Save things "

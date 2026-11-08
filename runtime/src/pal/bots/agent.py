@@ -109,6 +109,11 @@ class BotAgent:
         self._client: AgentClient | None = None
         self._client_settings: ModelSettings | None = None
         self._current: WorkItem | None = None
+        #: Things that happened in the chat since the bot's last turn, such as
+        #: a reaction to one of its messages. It reads them with its next message.
+        self._notes: list[str] = []
+        #: The reaction the bot left on the message it is handling, this turn.
+        self._reaction: str | None = None
 
     @property
     def id(self) -> str:
@@ -119,6 +124,12 @@ class BotAgent:
         """The waiting chain of the message being handled right now."""
 
         return self._current.chain if self._current else ()
+
+    @property
+    def current_message(self) -> Message | None:
+        """The message being handled right now."""
+
+        return self._current.message if self._current else None
 
     @property
     def queued(self) -> int:
@@ -148,6 +159,16 @@ class BotAgent:
 
     def submit(self, item: WorkItem) -> None:
         self._inbox.put_nowait(item)
+
+    def note(self, text: str) -> None:
+        """Tell the bot something with its next message, without starting a turn."""
+
+        self._notes.append(text)
+
+    def reacted(self, emoji: str) -> None:
+        """Record the bot's reaction to the message it is handling."""
+
+        self._reaction = emoji
 
     async def interrupt(self) -> bool:
         if self.status != "busy" or self._client is None:
@@ -191,13 +212,17 @@ class BotAgent:
 
     async def _handle(self, item: WorkItem) -> None:
         self._current = item
+        self._reaction = None
         self._set_status("busy")
         turn_id = new_id("turn")
-        prompt = frame_message(item.message, self._display_name(item.message.sender))
+        notes, self._notes = self._notes, []
+        prompt = "\n\n".join(
+            [*notes, frame_message(item.message, self._display_name(item.message.sender))]
+        )
         error: str | None = None
         try:
             outcome = await self._run_turn(prompt, turn_id)
-            text = outcome.text.strip() or "(no response)"
+            text: str | None = self._reply_text(outcome.text, item.message)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -210,31 +235,33 @@ class BotAgent:
             self._current = None
 
         incoming = item.message
-        reply = Message(
-            sender=self.id,
-            recipient=incoming.sender,
-            content=text,
-            kind="chat" if incoming.kind == "chat" else "reply",
-            reply_to=incoming.id,
-            metadata={
-                "turn_id": turn_id,
-                "error": error is not None,
-                "delivered": incoming.kind != "notice",
-            },
-        )
-        await self._messenger.record(reply)
+        reply: Message | None = None
+        if text is not None:
+            reply = Message(
+                sender=self.id,
+                recipient=incoming.sender,
+                content=text,
+                kind="chat" if incoming.kind == "chat" else "reply",
+                reply_to=incoming.id,
+                metadata={
+                    "turn_id": turn_id,
+                    "error": error is not None,
+                    "delivered": incoming.kind != "notice",
+                },
+            )
+            await self._messenger.record(reply)
         if item.reply is not None and not item.reply.done():
             if error is not None:
                 item.reply.set_exception(
                     TeamMessagingError(f"{self.definition.name} failed to answer: {error}")
                 )
             else:
-                item.reply.set_result(text)
+                item.reply.set_result(text or "")
         self._bus.publish(
             EventType.BOT_TURN_COMPLETED,
             bot=self.id,
             turn_id=turn_id,
-            message_id=reply.id,
+            message_id=reply.id if reply else None,
             error=error,
             cost_usd=outcome.cost_usd,
             num_turns=outcome.num_turns,
@@ -242,6 +269,17 @@ class BotAgent:
         )
         self.last_error = error
         self._set_status("error" if error else "idle")
+
+    def _reply_text(self, text: str, incoming: Message) -> str | None:
+        """What to send back, or None when a reaction said it all."""
+
+        text = text.strip()
+        if text:
+            return text
+        if self._reaction is None:
+            return "(no response)"
+        # Someone waiting on an answer still gets one.
+        return f"(reacted {self._reaction})" if incoming.kind == "request" else None
 
     async def _run_turn(self, prompt: str, turn_id: str) -> TurnOutcome:
         client = await self._ensure_client()

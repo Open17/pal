@@ -2,7 +2,15 @@
 
 from .events import Event, EventBus, EventType, Subscription
 from .log import ConversationLog, ConversationSummary
-from .models import Message, MessageKind, conversation_id, new_id, participants
+from .models import (
+    Message,
+    MessageKind,
+    clean_reaction,
+    conversation_id,
+    excerpt,
+    new_id,
+    participants,
+)
 from .service import Messenger
 
 __all__ = [
@@ -15,7 +23,9 @@ __all__ = [
     "MessageKind",
     "Messenger",
     "Subscription",
+    "clean_reaction",
     "conversation_id",
+    "excerpt",
     "new_id",
     "participants",
 ]

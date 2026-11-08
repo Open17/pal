@@ -5,7 +5,7 @@ from .auth import AuthStatus, auth_status, scrub_api_credentials, session_enviro
 from .options import SessionOptionsBuilder
 from .prompts import PromptContext, frame_message, system_prompt
 from .state import BotStateStore, ModelOverride
-from .team import BotTeam, UnknownBotError
+from .team import BotTeam, UnknownBotError, UnknownMessageError
 
 __all__ = [
     "AgentClient",
@@ -19,6 +19,7 @@ __all__ = [
     "PromptContext",
     "SessionOptionsBuilder",
     "UnknownBotError",
+    "UnknownMessageError",
     "WorkItem",
     "auth_status",
     "default_client_factory",

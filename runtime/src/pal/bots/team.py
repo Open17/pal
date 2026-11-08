@@ -7,7 +7,15 @@ from collections.abc import Iterable
 
 from pal.config import USER_ID, Effort, ModelSettings, PalConfig, validate_effort
 from pal.log import get_logger
-from pal.messaging import EventBus, EventType, Message, Messenger
+from pal.messaging import (
+    EventBus,
+    EventType,
+    Message,
+    Messenger,
+    clean_reaction,
+    conversation_id,
+    excerpt,
+)
 from pal.tools.builtin import TeamGateway, TeamMember, TeamMessagingError
 
 from .agent import BotAgent, WorkItem
@@ -17,6 +25,10 @@ log = get_logger(__name__)
 
 
 class UnknownBotError(KeyError):
+    pass
+
+
+class UnknownMessageError(KeyError):
     pass
 
 
@@ -140,6 +152,45 @@ class BotTeam(TeamGateway):
             self._waiting_on.pop(sender, None)
             self._publish_status(sender)
 
+    async def react(self, bot_id: str, emoji: str) -> Message:
+        """A bot reacts to the message it is handling right now."""
+
+        agent = self._agents.get(bot_id)
+        target = agent.current_message if agent else None
+        if agent is None or target is None:
+            raise TeamMessagingError("There is no message to react to right now.")
+        try:
+            emoji = clean_reaction(emoji, allow_empty=False)
+        except ValueError as exc:
+            raise TeamMessagingError(f"{exc}, like 👍.") from None
+        reaction = await self._record_reaction(bot_id, target, emoji)
+        agent.reacted(emoji)
+        return reaction
+
+    async def _record_reaction(self, sender: str, target: Message, emoji: str) -> Message:
+        """Record a reaction in the target's conversation and tell its author."""
+
+        recipient = target.recipient if target.sender == sender else target.sender
+        reaction = await self.messenger.record(
+            Message(
+                sender=sender,
+                recipient=recipient,
+                content=emoji,
+                kind="reaction",
+                reply_to=target.id,
+            )
+        )
+        author = self._agents.get(target.sender)
+        if author is not None and target.sender != sender:
+            who = "The user" if sender == USER_ID else self.display_name(sender)
+            quoted = excerpt(target.content)
+            author.note(
+                f'[{who} reacted {emoji} to your message: "{quoted}"]'
+                if emoji
+                else f'[{who} took back their reaction to your message: "{quoted}"]'
+            )
+        return reaction
+
     def _check_can_wait(self, sender: str, recipient: str, chain: tuple[str, ...]) -> None:
         if len(chain) > self.config.messaging.max_chain_depth:
             raise TeamMessagingError(
@@ -183,6 +234,17 @@ class BotTeam(TeamGateway):
         )
         agent.submit(WorkItem(message))
         return message
+
+    async def react_from_user(self, bot_id: str, message_id: str, emoji: str) -> Message:
+        """The user reacts to a message in their chat with a bot; an empty emoji
+        takes their reaction back. The bot sees it with its next message."""
+
+        self.agent(bot_id)
+        emoji = clean_reaction(emoji, allow_empty=True)
+        target = await self.messenger.log.find(conversation_id(USER_ID, bot_id), message_id)
+        if target is None or target.kind == "reaction":
+            raise UnknownMessageError(message_id)
+        return await self._record_reaction(USER_ID, target, emoji)
 
     # -- model settings ------------------------------------------------------
 

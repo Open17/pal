@@ -8,7 +8,7 @@ from typing import Any
 
 from aiohttp import web
 
-from pal.bots import UnknownBotError
+from pal.bots import UnknownBotError, UnknownMessageError
 from pal.config import ConfigError
 from pal.displays import DisplayBackendError, UnknownDisplayError
 from pal.log import get_logger
@@ -39,6 +39,8 @@ async def error_middleware(request: web.Request, handler: Handler) -> web.Stream
         return error_response(exc.status, exc.code, exc.message)
     except UnknownBotError as exc:
         return error_response(404, "unknown_bot", f"no bot called {exc.args[0]!r}")
+    except UnknownMessageError as exc:
+        return error_response(404, "unknown_message", f"no message {exc.args[0]!r}")
     except UnknownDisplayError as exc:
         return error_response(404, "unknown_display", f"no display for {exc.args[0]!r}")
     except MemoryAccessError as exc:

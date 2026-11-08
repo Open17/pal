@@ -118,3 +118,24 @@ async def test_event_stream(api) -> None:
                 seen.append((await socket.receive_json())["type"])
     assert seen[0] == "message.created"
     assert "bot.status" in seen
+
+
+async def test_react_to_a_message(api) -> None:
+    response = await api.post("/v1/bots/atlas/messages", json={"content": "hi"}, headers=api.auth)
+    reply = await api.harness.reply_to(Message.from_dict((await response.json())["message"]))
+
+    body = {"message_id": reply.id, "emoji": "👍"}
+    response = await api.post("/v1/bots/atlas/reactions", json=body, headers=api.auth)
+    assert response.status == 201
+    reaction = (await response.json())["message"]
+    assert (reaction["kind"], reaction["content"], reaction["reply_to"]) == (
+        "reaction",
+        "👍",
+        reply.id,
+    )
+
+    missing = {"message_id": "msg_nope", "emoji": "👍"}
+    response = await api.post("/v1/bots/atlas/reactions", json=missing, headers=api.auth)
+    assert (await response.json())["error"]["code"] == "unknown_message"
+    response = await api.post("/v1/bots/atlas/reactions", json={"emoji": "👍"}, headers=api.auth)
+    assert response.status == 400
