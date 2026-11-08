@@ -20,7 +20,15 @@ from pal.bots import (
     default_client_factory,
     scrub_api_credentials,
 )
-from pal.config import BOTS_DIR_NAME, BotDefinition, ConfigError, PalConfig, new_bot_id, save_bot
+from pal.config import (
+    BOTS_DIR_NAME,
+    BotDefinition,
+    ConfigError,
+    PalConfig,
+    new_bot_id,
+    save_bot,
+    validate_color,
+)
 from pal.displays import DisplayBackend, DisplayManager, VncProxy, create_backend
 from pal.log import get_logger
 from pal.memory import MemoryService
@@ -126,7 +134,7 @@ class PalRuntime:
             name=name,
             role=role.strip(),
             persona=persona.strip(),
-            color=color,
+            color=validate_color(color, where="new bot") if color else None,
         )
         save_bot(self._bots_dir, bot)
         self.config = replace(self.config, bots=(*self.config.bots, bot))
@@ -138,6 +146,19 @@ class PalRuntime:
         self.bus.publish(EventType.BOT_ADDED, bot=bot.id, **agent.to_dict())
         agent.start()
         log.info("added bot %s (%s)", bot.id, bot.name)
+        return agent
+
+    def recolor_bot(self, bot_id: str, color: str) -> BotAgent:
+        """Change a bot's color and save it to the bot's definition file."""
+
+        agent = self.team.agent(bot_id)
+        bot = replace(agent.definition, color=validate_color(color, where=bot_id))
+        save_bot(self._bots_dir, bot)
+        agent.definition = bot
+        self.config = replace(
+            self.config, bots=tuple(bot if b.id == bot_id else b for b in self.config.bots)
+        )
+        self.bus.publish(EventType.BOT_UPDATED, bot=bot_id, **agent.to_dict())
         return agent
 
     async def remove_bot(self, bot_id: str) -> None:

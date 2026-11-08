@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from aiohttp import web
 
+from pal.config import validate_color
+
 from ..context import context
 from ..errors import ApiError, json_body, optional_str
 
@@ -61,17 +63,26 @@ async def get_bot(request: web.Request) -> web.Response:
 
 @routes.patch("/v1/bots/{bot_id}")
 async def update_bot(request: web.Request) -> web.Response:
-    """Change a bot's model or effort. ``{"reset": true}`` returns it to the defaults."""
+    """Change a bot's model, effort, or color. ``{"reset": true}`` returns its model
+    and effort to the defaults; its color stays."""
 
     team = context(request).team
     bot_id = request.match_info["bot_id"]
     body = await json_body(request)
+    team.agent(bot_id)  # unknown bots are a 404, before anything changes
+    color = optional_str(body, "color")
+    if color is not None:
+        # Checked up front so a bad color doesn't leave the rest half-applied.
+        manager = _manager(request)
+        validate_color(color, where=bot_id)
     if body.get("reset"):
         team.clear_bot_override(bot_id)
-    else:
+    elif "model" in body or "effort" in body:
         team.update_bot(
             bot_id, model=optional_str(body, "model"), effort=optional_str(body, "effort")
         )
+    if color is not None:
+        manager.recolor_bot(bot_id, color)
     return web.json_response(team.agent(bot_id).to_dict())
 
 

@@ -26,6 +26,7 @@ from .models import (
     ModelSettings,
     PalConfig,
     PathSettings,
+    validate_color,
     validate_effort,
 )
 
@@ -53,5 +54,6 @@ __all__ = [
     "load_config",
     "new_bot_id",
     "save_bot",
+    "validate_color",
     "validate_effort",
 ]
