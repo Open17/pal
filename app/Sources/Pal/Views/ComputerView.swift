@@ -24,7 +24,22 @@ struct ComputerView: View {
         .navigationSubtitle(store.vm.isRunning ? "On · \(store.displays.filter { $0.state == "running" }.count) awake" : "Off")
     }
 
+    @ViewBuilder
     private var grid: some View {
+        if store.displays.isEmpty {
+            ContentUnavailableView(
+                "No Screens Yet",
+                systemImage: "display",
+                description: Text(store.vm.isRunning
+                    ? "Each bot’s screen shows up here once Pal’s computer has started."
+                    : "Turn on Pal’s computer to see your team’s screens.")
+            )
+        } else {
+            cards
+        }
+    }
+
+    private var cards: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Each bot has its own display. A display starts when its bot needs the computer and falls asleep after 8 idle minutes, keeping its windows open. Watching a display wakes it.")

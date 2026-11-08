@@ -108,6 +108,9 @@ final class PalStore {
     var focusedMessage: [String: String] = [:]
     /// Bots whose computer is open beside their chat. Saved between launches.
     private(set) var displayOpen = Set(UserDefaults.standard.stringArray(forKey: "openDisplays") ?? [])
+    /// Work pills you've opened, by their first step's id, so one stays open
+    /// when the bot finishes and the live pill becomes the recorded one.
+    var expandedWork: Set<String> = []
     /// A memory to show in Memory; the view clears it.
     var focusedMemory: MemoryFocus?
     /// Where you left each chat scrolled up, by bot id, until the app quits.
