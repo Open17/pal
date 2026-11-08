@@ -365,7 +365,7 @@ struct ComputerPopover: View {
             if vm.isRunning {
                 Divider()
                 if let auth = store.auth {
-                    Label(auth.ok ? "Signed in (\(auth.method))" : "Not signed in", systemImage: auth.ok ? "checkmark.seal.fill" : "person.crop.circle.badge.exclamationmark")
+                    Label(auth.ok ? "Signed in to Claude" : "Not signed in to Claude", systemImage: auth.ok ? "checkmark.seal.fill" : "person.crop.circle.badge.exclamationmark")
                         .foregroundStyle(auth.ok ? Color.statusGreen : Color.statusOrange)
                         .font(.callout)
                 }
@@ -376,7 +376,8 @@ struct ComputerPopover: View {
             Divider()
             HStack(spacing: 6) {
                 Circle().fill(store.connection == .online ? Color.statusGreen : .secondary).frame(width: 7, height: 7)
-                Text(store.connection == .online ? "Connected to \(store.client.displayAddress)" : "Team not connected")
+                Text(store.connection == .online ? "Team connected" : "Team not connected")
+                    .help(store.connection == .online ? "Connected to \(store.client.displayAddress)" : "")
                 Spacer()
                 Button("Log") { NSWorkspace.shared.open(vm.log) }.buttonStyle(.link)
             }
@@ -432,11 +433,16 @@ private struct NoSelectionView: View {
 }
 
 struct EmptyTeamView: View {
+    @Environment(PalStore.self) private var store
+
     var body: some View {
         ContentUnavailableView {
             Label("No Bots Yet", systemImage: "person.2")
         } description: {
-            Text("Bots are defined in ~/.config/pal/bots inside Pal’s computer.")
+            Text("Add a bot to your team to start chatting.")
+        } actions: {
+            Button("Add a Bot") { store.sheet = .newBot }
+                .buttonStyle(.borderedProminent)
         }
     }
 }

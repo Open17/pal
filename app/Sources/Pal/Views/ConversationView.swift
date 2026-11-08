@@ -231,6 +231,7 @@ struct ModelMenu: View {
 /// Shown when the bots aren't signed in yet.
 private struct SignInBanner: View {
     @Environment(PalStore.self) private var store
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         if let auth = store.auth, !auth.ok {
@@ -239,12 +240,15 @@ private struct SignInBanner: View {
                     .font(.title3)
                     .foregroundStyle(Color.statusOrange)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Your team isn't signed in yet").font(.callout.weight(.semibold))
-                    Text("Run `claude login` in Pal's computer, or rebuild the VM with a sign-in token.")
+                    Text("Sign in so your team can answer").font(.callout.weight(.semibold))
+                    Text("Open your desktop on Pal’s computer, open Terminal there, type claude login, and follow the steps.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
+                Button("Open Desktop") { openWindow(id: "display", value: "operator") }
+                    .controlSize(.small)
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.statusOrange.opacity(0.1)))
