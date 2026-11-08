@@ -11,7 +11,7 @@ from typing import Any
 from claude_agent_sdk import SdkMcpTool, tool
 from PIL import Image
 
-from pal.displays import DisplayManager
+from pal.displays import DisplayBackendError, DisplayManager
 
 from ..base import ToolContext, ToolProvider, ToolResult, error_result, text_result
 from . import ocr
@@ -62,6 +62,12 @@ class ComputerTools(ToolProvider):
             return round(x / scale), round(y / scale)
 
         async def guarded(action) -> ToolResult:
+            # Wake the display here too, so the tools never act on a display
+            # that is not running, whoever calls them.
+            try:
+                await provider.displays.ensure_awake(bot_id)
+            except DisplayBackendError as exc:
+                return error_result(f"your display could not be started: {exc}")
             try:
                 return await action()
             except DesktopError as exc:

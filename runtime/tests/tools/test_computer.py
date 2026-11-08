@@ -145,3 +145,9 @@ def test_provider_requires_display(computer: ComputerTools) -> None:
         len(computer.tools(__import__("pal.tools", fromlist=["ToolContext"]).ToolContext("atlas")))
         == 13
     )
+
+
+async def test_tools_wake_the_display_first(computer: ComputerTools) -> None:
+    assert computer.displays.get("atlas").state == "stopped"
+    await handlers(computer)["list_windows"]({})
+    assert computer.displays.get("atlas").state == "running"
