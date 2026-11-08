@@ -127,17 +127,28 @@ struct InstructionsEditor: View {
     }
 }
 
-/// Add something to shared memory or a bot's knowledge.
+/// Add something to shared memory or a bot's knowledge, or change an entry.
 struct NewMemorySheet: View {
     @Environment(PalStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let scope: String
-    @State private var title = ""
-    @State private var description = ""
-    @State private var content = ""
-    @State private var tags = ""
+    /// The entry being changed; nil adds a new one.
+    let editing: MemoryEntry?
+    @State private var title: String
+    @State private var description: String
+    @State private var content: String
+    @State private var tags: String
     @State private var error: String?
     @State private var saving = false
+
+    init(scope: String, editing: MemoryEntry? = nil) {
+        self.scope = scope
+        self.editing = editing
+        _title = State(initialValue: editing?.title ?? "")
+        _description = State(initialValue: editing?.description ?? "")
+        _content = State(initialValue: editing?.body ?? "")
+        _tags = State(initialValue: editing?.tags.joined(separator: ", ") ?? "")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -184,7 +195,11 @@ struct NewMemorySheet: View {
         )
         Task {
             do {
-                try await store.saveMemory(input, scope: scope)
+                if let editing {
+                    try await store.updateMemory(editing.id, input, scope: scope)
+                } else {
+                    try await store.saveMemory(input, scope: scope)
+                }
                 dismiss()
             } catch {
                 self.error = error.localizedDescription

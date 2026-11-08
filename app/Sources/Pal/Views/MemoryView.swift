@@ -13,9 +13,14 @@ struct MemoryView: View {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return all }
         return all.filter {
-            $0.title.localizedCaseInsensitiveContains(q) || $0.body.localizedCaseInsensitiveContains(q)
+            $0.title.localizedCaseInsensitiveContains(q) || $0.description.localizedCaseInsensitiveContains(q)
+                || $0.body.localizedCaseInsensitiveContains(q)
                 || $0.tags.contains { $0.localizedCaseInsensitiveContains(q) }
         }
+    }
+
+    private var selectedEntry: MemoryEntry? {
+        entries.first { $0.id == selected }
     }
 
     var body: some View {
@@ -44,16 +49,19 @@ struct MemoryView: View {
                         .padding(.vertical, 3)
                         .tag(entry.id)
                         .contextMenu {
+                            Button("Edit…") { store.sheet = .editMemory(scope: scope, entry: entry) }
+                            Divider()
                             Button("Delete…", role: .destructive) { pendingDelete = entry }
                         }
                     }
                 }
                 .listStyle(.inset)
+                .onDeleteCommand { pendingDelete = selectedEntry }
             }
             .frame(minWidth: 260, idealWidth: 300, maxWidth: 400)
 
             Group {
-                if let entry = entries.first(where: { $0.id == selected }) {
+                if let entry = selectedEntry {
                     MemoryDetail(entry: entry)
                 } else {
                     ContentUnavailableView("Long-Term Memory", systemImage: "brain", description: Text("What your team remembers between conversations. Shared memory is visible to every bot."))
@@ -66,7 +74,15 @@ struct MemoryView: View {
         .navigationTitle("Memory")
         .navigationSubtitle("\(entries.count) \(entries.count == 1 ? "entry" : "entries")")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button("Edit", systemImage: "pencil") {
+                    selectedEntry.map { store.sheet = .editMemory(scope: scope, entry: $0) }
+                }
+                .help("Change this memory")
+                .disabled(selectedEntry == nil)
+                Button("Delete", systemImage: "trash") { pendingDelete = selectedEntry }
+                    .help("Delete this memory (⌫)")
+                    .disabled(selectedEntry == nil)
                 Button("Add Memory", systemImage: "plus") { store.sheet = .newMemory(scope: scope) }
                     .help("Add something for the team to remember")
             }
