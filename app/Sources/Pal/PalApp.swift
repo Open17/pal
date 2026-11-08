@@ -6,6 +6,7 @@ import UserNotifications
 struct PalApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store = PalStore()
+    @AppStorage("showInspector") private var showInspector = false
 
     var body: some Scene {
         Window("Pal", id: "main") {
@@ -47,6 +48,15 @@ struct PalApp: App {
                 Button("Stop") { store.selectedId.map(store.interrupt) }
                     .keyboardShortcut(".")
                     .disabled(!(store.selectedPal?.status.isWorking ?? false))
+                Button(showInspector ? "Hide Details" : "Show Details") { showInspector.toggle() }
+                    .keyboardShortcut("i")
+                    .disabled(store.selectedPal == nil)
+                Button(store.selectedPal.map { store.displayOpen.contains($0.id) } == true ? "Hide Computer" : "Show Computer") {
+                    if let pal = store.selectedPal { store.setDisplayOpen(!store.displayOpen.contains(pal.id), for: pal.id) }
+                }
+                .keyboardShortcut("d", modifiers: [.command, .option])
+                .disabled(store.selectedPal == nil)
+                Divider()
                 Button("Bot Settings…") { store.selectedPal.map { store.sheet = .botSettings($0) } }
                     .keyboardShortcut("e")
                     .disabled(store.selectedPal == nil)
