@@ -63,6 +63,10 @@ class BotTeam(TeamGateway):
     def agents(self) -> list[BotAgent]:
         return list(self._agents.values())
 
+    def is_working(self, bot_id: str) -> bool:
+        agent = self._agents.get(bot_id)
+        return agent is not None and agent.status == "busy"
+
     def display_name(self, participant: str) -> str:
         if participant == USER_ID:
             return "the user"

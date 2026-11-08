@@ -50,6 +50,9 @@ class DisplayManager:
         self._displays: dict[str, Display] = {}
         self._was_live: set[str] = set()
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        #: Whether an owner is busy (a bot mid-task); a busy owner's display
+        #: stays awake, and its idle time counts from when it finishes.
+        self.is_working: Callable[[str], bool] = lambda owner: False
 
     # -- registration ------------------------------------------------------
 
@@ -241,6 +244,9 @@ class DisplayManager:
         now = self._clock()
         slept = []
         for display in self.all():
+            if display.state == "running" and self.is_working(display.owner):
+                display.last_activity = now
+                continue
             idle = now - display.last_activity
             if (
                 display.state == "running"
