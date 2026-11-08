@@ -31,3 +31,12 @@ display.
 
 Early development. Work lands on the `development` branch; `main` is reserved
 for releases.
+
+
+## License
+
+OpenPal is licensed under the [OpenPal Personal Use Source-Available License](LICENSE.md).
+
+You may inspect the source, run an unchanged copy for personal non-business use, and share unchanged copies for personal non-business use by others.
+Modification, business use, and commercial distribution are not permitted.
+Commercial rights are reserved to the copyright owner.
