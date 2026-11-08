@@ -2,7 +2,7 @@
 # drive, plus everyday tools for documents, media, data, and code.
 
 apt_install \
-    scrot xclip tesseract-ocr tesseract-ocr-eng \
+    scrot xclip tesseract-ocr tesseract-ocr-eng libglib2.0-bin \
     chromium fonts-liberation2 \
     imagemagick poppler-utils pandoc ffmpeg \
     ripgrep fd-find sqlite3 zip unzip p7zip-full file tree htop \

@@ -33,7 +33,7 @@ class Box:
 class Word:
     text: str
     box: Box
-    line: tuple[int, int, int]  # block, paragraph, line
+    confidence: float
 
 
 @dataclass(frozen=True)
@@ -43,10 +43,10 @@ class Line:
     words: tuple[Word, ...]
 
 
-def parse_tsv(tsv: str, *, min_confidence: float = 40) -> list[Line]:
-    """Group Tesseract TSV output (``tesseract img stdout tsv``) into lines."""
+def parse_words(tsv: str, *, min_confidence: float = 40) -> list[Word]:
+    """The confident words in Tesseract TSV output (``tesseract img stdout tsv``)."""
 
-    lines: dict[tuple[int, int, int], list[Word]] = {}
+    words = []
     for row in tsv.splitlines()[1:]:
         cols = row.split("\t")
         if len(cols) < 12 or cols[0] != "5":
@@ -54,20 +54,73 @@ def parse_tsv(tsv: str, *, min_confidence: float = 40) -> list[Line]:
         text = cols[11].strip()
         try:
             confidence = float(cols[10])
-            key = (int(cols[2]), int(cols[3]), int(cols[4]))
             box = Box(int(cols[6]), int(cols[7]), int(cols[8]), int(cols[9]))
         except ValueError:
             continue
         if text and confidence >= min_confidence:
-            lines.setdefault(key, []).append(Word(text, box, key))
-    result = []
-    for words in lines.values():
-        box = words[0].box
-        for word in words[1:]:
+            words.append(Word(text, box, confidence))
+    return words
+
+
+def merge(*readings: list[Word]) -> list[Word]:
+    """Combine several readings of one image, keeping the surer of overlapping words."""
+
+    kept: list[Word] = []
+    for word in sorted((w for words in readings for w in words), key=lambda w: -w.confidence):
+        if all(_overlap(word.box, other.box) < 0.5 for other in kept):
+            kept.append(word)
+    return kept
+
+
+def group_lines(words: list[Word]) -> list[Line]:
+    """Group words into lines by where they are on screen.
+
+    Words join a line when they sit on the same row and follow its last word
+    closely; wider gaps (between menu items, table columns) start a new line.
+    """
+
+    rows: list[list[Word]] = []
+    for word in sorted(words, key=lambda w: w.box.left):
+        for row in rows:
+            last = row[-1].box
+            height = max(last.height, word.box.height)
+            gap = word.box.left - (last.left + last.width)
+            if abs(_middle(last) - _middle(word.box)) <= height / 2 and -height / 2 <= gap <= (
+                height * 1.5
+            ):
+                row.append(word)
+                break
+        else:
+            rows.append([word])
+    lines = []
+    for row in rows:
+        box = row[0].box
+        for word in row[1:]:
             box = box.union(word.box)
-        result.append(Line(" ".join(w.text for w in words), box, tuple(words)))
-    result.sort(key=lambda line: (line.box.top, line.box.left))
-    return result
+        lines.append(Line(" ".join(w.text for w in row), box, tuple(row)))
+    lines.sort(key=lambda line: (line.box.top, line.box.left))
+    return lines
+
+
+def parse_tsv(tsv: str, *, min_confidence: float = 40) -> list[Line]:
+    """Lines of text in Tesseract TSV output."""
+
+    return group_lines(parse_words(tsv, min_confidence=min_confidence))
+
+
+def _middle(box: Box) -> float:
+    return box.top + box.height / 2
+
+
+def _overlap(a: Box, b: Box) -> float:
+    """Intersection over union of two boxes."""
+
+    width = min(a.left + a.width, b.left + b.width) - max(a.left, b.left)
+    height = min(a.top + a.height, b.top + b.height) - max(a.top, b.top)
+    if width <= 0 or height <= 0:
+        return 0.0
+    shared = width * height
+    return shared / (a.width * a.height + b.width * b.height - shared)
 
 
 def _normalize(text: str) -> list[str]:

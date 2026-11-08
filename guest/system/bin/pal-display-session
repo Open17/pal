@@ -31,6 +31,11 @@ if [[ -f $lock ]]; then
     fi
 fi
 
+# Only the readiness check below may talk to systemd: the session bus
+# daemon would otherwise report the display ready the moment it starts.
+notify_socket=${NOTIFY_SOCKET:-}
+unset NOTIFY_SOCKET
+
 Xvnc "$display" \
     -geometry "${PAL_DISPLAY_GEOMETRY:-1280x800}" \
     -depth "${PAL_DISPLAY_DEPTH:-24}" \
@@ -59,6 +64,16 @@ export PAL_DISPLAY_OWNER=$owner
 
 # A display is a workspace for an agent: never blank or lock it.
 xset s off -dpms 2>/dev/null || true
+
+# Report the display ready once a window manager manages it, so whatever
+# started it can open windows straight away. Gives up waiting after 20s.
+(
+    for _ in $(seq 1 200); do
+        wmctrl -l >/dev/null 2>&1 && break
+        sleep 0.1
+    done
+    NOTIFY_SOCKET=$notify_socket systemd-notify --ready
+) &
 
 # Each display gets a private session bus. Its address is recorded so the
 # stop hook can ask this session to save itself.

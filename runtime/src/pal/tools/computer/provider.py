@@ -11,14 +11,22 @@ from typing import Any
 from claude_agent_sdk import SdkMcpTool, tool
 from PIL import Image
 
-from pal.displays import DisplayManager
+from pal.displays import DisplayBackendError, DisplayManager
 
 from ..base import ToolContext, ToolProvider, ToolResult, error_result, text_result
 from . import ocr
-from .desktop import Desktop, DesktopError
+from .desktop import Desktop, DesktopError, Window
 
 #: Screenshots are scaled to fit this box; coordinates map back to the screen.
 MAX_SCREENSHOT = (1280, 800)
+#: How long open_app waits for the program's window, and for the windows to
+#: stop changing (splash screens, stand-in windows) before it reports back.
+OPEN_WAIT = 15.0
+OPEN_SETTLE = 0.75
+#: Screens narrower than this are enlarged before text recognition.
+OCR_ENLARGE_BELOW = 2000
+#: Tesseract page segmentation modes: sparse text, automatic, single column.
+OCR_LAYOUTS = (11, 3, 4)
 
 _POINT = {"type": "integer", "minimum": 0}
 
@@ -62,6 +70,12 @@ class ComputerTools(ToolProvider):
             return round(x / scale), round(y / scale)
 
         async def guarded(action) -> ToolResult:
+            # Wake the display here too, so the tools never act on a display
+            # that is not running, whoever calls them.
+            try:
+                await provider.displays.ensure_awake(bot_id)
+            except DisplayBackendError as exc:
+                return error_result(f"your display could not be started: {exc}")
             try:
                 return await action()
             except DesktopError as exc:
@@ -288,9 +302,17 @@ class ComputerTools(ToolProvider):
         )
         async def open_app(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                argv = await provider.desktop(bot_id).open(args["command"])
-                await asyncio.sleep(1.5)  # give the window a moment to appear
-                return text_result(f"Started {argv[0]}. Take a screenshot to see it.")
+                desktop = provider.desktop(bot_id)
+                before = {w.id for w in await desktop.windows()}
+                argv = await desktop.open(args["command"])
+                window = await _new_window(desktop, before)
+                if window is None:
+                    return text_result(
+                        f"Started {argv[0]}, but no new window appeared within "
+                        f"{OPEN_WAIT:g}s. It may still be loading, or it reused a window "
+                        "that was already open. Take a screenshot to check."
+                    )
+                return text_result(f"Started {argv[0]}: its window “{window.title}” is open.")
 
             return await guarded(run)
 
@@ -350,20 +372,71 @@ class ComputerTools(ToolProvider):
 
         desktop = self.desktop(bot_id)
         path = await desktop.screenshot()
-        lines = ocr.parse_tsv(await desktop.recognize_text(path))
+        prepared, enlarged = await asyncio.to_thread(_prepare_for_ocr, path)
+        # Each layout mode misses text the others read: sparse mode finds
+        # scattered interface text, automatic and single-column layout read runs
+        # of text and lone characters. Run in parallel, all three take about as
+        # long as one.
+        readings = await asyncio.gather(
+            *(desktop.recognize_text(prepared, layout=layout) for layout in OCR_LAYOUTS)
+        )
+        lines = ocr.group_lines(ocr.merge(*(ocr.parse_words(tsv) for tsv in readings)))
         if bot_id not in self._scale:
             _, _, self._scale[bot_id] = await asyncio.to_thread(_fit, path)
-        scale = self._scale[bot_id]
-        if scale == 1:
+        factor = self._scale[bot_id] * enlarged
+        if factor == 1:
             return lines
         return [
             ocr.Line(
                 line.text,
-                line.box.scaled(scale),
-                tuple(ocr.Word(w.text, w.box.scaled(scale), w.line) for w in line.words),
+                line.box.scaled(factor),
+                tuple(ocr.Word(w.text, w.box.scaled(factor), w.confidence) for w in line.words),
             )
             for line in lines
         ]
+
+
+async def _new_window(desktop: Desktop, before: set[str]) -> Window | None:
+    """The program's new window, once the windows have settled.
+
+    Some programs show a splash or stand-in window first, so this waits until
+    no window has come or gone for OPEN_SETTLE seconds (up to OPEN_WAIT) and
+    returns the newest window that was not in ``before``.
+    """
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + OPEN_WAIT
+    seen: list[str] | None = None
+    steady_since = loop.time()
+    while True:
+        windows = await desktop.windows()
+        fresh = [w for w in windows if w.id not in before]
+        now = loop.time()
+        ids = [w.id for w in windows]
+        if ids != seen:
+            seen, steady_since = ids, now
+        if fresh and now - steady_since >= OPEN_SETTLE:
+            return fresh[-1]
+        if now >= deadline:
+            return fresh[-1] if fresh else None
+        await asyncio.sleep(0.25)
+
+
+def _prepare_for_ocr(path: Path) -> tuple[Path, int]:
+    """A grayscale copy for text recognition, enlarged when the screen's text is small.
+
+    Text recognition misses most interface text at ordinary screen sizes; at
+    twice the size it reads menus, titles and window contents reliably.
+    """
+
+    with Image.open(path) as image:
+        enlarge = 2 if image.width < OCR_ENLARGE_BELOW else 1
+        gray = image.convert("L")
+        if enlarge > 1:
+            gray = gray.resize((image.width * enlarge, image.height * enlarge), Image.LANCZOS)
+        prepared = path.with_name(f"{path.stem}-ocr.png")
+        gray.save(prepared)
+        return prepared, enlarge
 
 
 def _fit(path: Path) -> tuple[bytes, tuple[int, int], float]:

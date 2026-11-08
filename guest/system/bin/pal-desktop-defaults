@@ -24,6 +24,10 @@ set_property xfce4-power-manager /xfce4-power-manager/dpms-enabled bool false
 set_property xfce4-power-manager /xfce4-power-manager/blank-on-ac int 0
 set_property xfce4-power-manager /xfce4-power-manager/lock-screen-suspend-hibernate bool false
 
+# Bots share one home folder: the text editor must not reopen one bot's
+# unsaved drafts in another bot's window.
+gsettings set org.xfce.mousepad.preferences.file session-restore never 2>/dev/null || true
+
 # Crisp text for screenshots and remote viewing.
 set_property xsettings /Xft/Antialias int 1
 set_property xsettings /Xft/HintStyle string hintslight

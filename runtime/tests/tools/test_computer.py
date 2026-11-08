@@ -8,6 +8,7 @@ from PIL import Image
 from pal.config import DisplaySettings
 from pal.displays import DisplayManager, InMemoryDisplayBackend
 from pal.tools.computer import ComputerTools, DesktopError, normalize_keys, ocr, parse_windows
+from pal.tools.computer import provider as provider_module
 from pal.tools.computer.desktop import Desktop
 from tests.tools.helpers import handlers, text
 
@@ -71,23 +72,60 @@ def test_ocr_lines_and_search() -> None:
     assert ocr.find(lines, "Canc")  # partial last word, as you'd type it
 
 
+def word(text: str, left: int, top: int, width: int, height: int, confidence: float = 95):
+    return ocr.Word(text, ocr.Box(left, top, width, height), confidence)
+
+
+def test_lines_are_grouped_by_position() -> None:
+    # Real word boxes from an editor (2x screen), which Tesseract put in separate
+    # blocks, and a menu bar whose items are farther apart than words are.
+    words = [
+        word("row", 21, 184, 49, 16), word("number", 91, 178, 103, 22), word("0", 216, 180, 14, 20),
+        word("row", 21, 220, 49, 16), word("number", 91, 214, 103, 22), word("1", 218, 216, 12, 20),
+        word("Edit", 103, 130, 41, 20), word("Search", 180, 131, 78, 19),
+    ]  # fmt: skip
+    lines = [line.text for line in ocr.group_lines(words)]
+    assert lines == ["Edit", "Search", "row number 0", "row number 1"]
+    ((_, box),) = ocr.find(ocr.group_lines(words), "row number 1")
+    assert box == ocr.Box(21, 214, 209, 22)
+
+
+def test_readings_are_merged_keeping_the_surer_word() -> None:
+    sparse = [word("number", 91, 178, 103, 22, 96), word("O", 216, 180, 14, 20, 50)]
+    automatic = [word("0", 217, 181, 13, 19, 93), word("row", 21, 184, 49, 16, 92)]
+    merged = ocr.merge(sparse, automatic)
+    assert sorted(w.text for w in merged) == ["0", "number", "row"]
+
+
 class FakeDesktop(Desktop):
     calls: list[tuple] = []
+    opened: list[str] = []
+    screen = (2560, 1600)
 
     async def run(self, *args, stdin=None, time_limit=20):
         FakeDesktop.calls.append(args)
         if args[0] == "scrot":
-            Image.new("RGB", (2560, 1600), "white").save(args[-1])
+            Image.new("RGB", FakeDesktop.screen, "white").save(args[-1])
         if args[0] == "tesseract":
             return TSV
+        if args[0] == "pal-open":
+            FakeDesktop.opened.append(
+                "0x01600001  0 2 50 50 600 400  mousepad.Mousepad pal Untitled 1 - Mousepad\n"
+            )
         if args[0] == "wmctrl" and args[1] == "-lpGx":
-            return "0x01400003  0 1 100 100 400 300  mousepad.Mousepad pal notes.txt - Mousepad\n"
+            listing = (
+                "0x01400003  0 1 100 100 400 300  mousepad.Mousepad pal notes.txt - Mousepad\n"
+            )
+            return listing + "".join(FakeDesktop.opened)
         return ""
 
 
 @pytest.fixture
 def computer(tmp_path: Path, monkeypatch) -> ComputerTools:
     FakeDesktop.calls = []
+    FakeDesktop.screen = (2560, 1600)
+    FakeDesktop.opened = []
+    monkeypatch.setattr(provider_module, "OPEN_SETTLE", 0)
     displays = DisplayManager(
         DisplaySettings(backend="simulated"), InMemoryDisplayBackend(), tmp_path / "d.json"
     )
@@ -135,7 +173,7 @@ async def test_windows_and_keys(computer: ComputerTools) -> None:
 
 async def test_open_app_uses_pal_open(computer: ComputerTools) -> None:
     result = await handlers(computer)["open_app"]({"command": "mousepad 'my notes.txt'"})
-    assert "Started mousepad" in text(result)
+    assert text(result) == "Started mousepad: its window “Untitled 1 - Mousepad” is open."
     assert ("pal-open", "mousepad", "my notes.txt") in FakeDesktop.calls
 
 
@@ -145,3 +183,44 @@ def test_provider_requires_display(computer: ComputerTools) -> None:
         len(computer.tools(__import__("pal.tools", fromlist=["ToolContext"]).ToolContext("atlas")))
         == 13
     )
+
+
+async def test_tools_wake_the_display_first(computer: ComputerTools) -> None:
+    assert computer.displays.get("atlas").state == "stopped"
+    await handlers(computer)["list_windows"]({})
+    assert computer.displays.get("atlas").state == "running"
+
+
+async def test_small_screens_are_enlarged_for_text_recognition(computer: ComputerTools) -> None:
+    # On a 1280x800 screen the recognizer reads a 2x copy, so its boxes are halved.
+    FakeDesktop.screen = (1280, 800)
+    found = text(await handlers(computer)["find_text"]({"text": "cancel"}))
+    assert found == "Found “cancel” at:\n(215, 153) in “Cancel”"
+    ocr_call = next(call for call in FakeDesktop.calls if call[0] == "tesseract")
+    assert ocr_call[1].endswith("screen-atlas-ocr.png")
+
+
+async def test_open_app_says_when_no_window_appears(computer: ComputerTools, monkeypatch) -> None:
+    monkeypatch.setattr(provider_module, "OPEN_WAIT", 0)
+    # A program that reuses an existing window adds nothing to the window list.
+    original = FakeDesktop.run
+
+    async def no_new_window(self, *args, **kwargs):
+        if args[0] == "pal-open":
+            FakeDesktop.calls.append(args)
+            return ""
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(FakeDesktop, "run", no_new_window)
+    result = await handlers(computer)["open_app"]({"command": "mousepad"})
+    assert "no new window appeared" in text(result)
+
+
+async def test_drag_moves_in_steps_with_the_button_held(computer: ComputerTools) -> None:
+    await handlers(computer)["screenshot"]({})
+    await handlers(computer)["drag"]({"from_x": 10, "from_y": 20, "to_x": 110, "to_y": 220})
+    call = FakeDesktop.calls[-1]
+    assert call[:7] == ("xdotool", "mousemove", "--sync", "20", "40", "mousedown", "1")
+    moves = [call[i + 1 : i + 3] for i, arg in enumerate(call) if arg == "mousemove"][1:]
+    assert len(moves) == 15 and moves[-1] == ("220", "440")  # screen is 2x the screenshot
+    assert call[-2:] == ("mouseup", "1")
