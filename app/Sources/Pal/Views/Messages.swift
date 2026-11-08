@@ -104,10 +104,9 @@ enum Timeline {
 
 // MARK: - Message row
 
+/// One message, without a time or avatar beside it: theirs at the left
+/// edge, yours at the right.
 struct MessageRowView: View {
-    /// Space reserved for the avatar column, so bubbles and work steps line up.
-    static let gutter: CGFloat = 38
-
     @Environment(PalStore.self) private var store
     let row: MessageRow
     let pal: Pal
@@ -117,24 +116,19 @@ struct MessageRowView: View {
             if row.sender == .me {
                 HStack(spacing: 0) {
                     Spacer(minLength: 100)
-                    VStack(alignment: .trailing, spacing: 3) {
-                        if row.isFirst {
-                            Text(Fmt.time(row.message.createdAt))
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.tertiary)
-                                .padding(.trailing, 4)
-                        }
-                        content(outgoing: true)
-                    }
+                    content(outgoing: true)
                 }
             } else {
                 HStack(alignment: .top, spacing: 0) {
-                    Group {
-                        if row.isFirst { avatar } else { Color.clear.frame(height: 1) }
-                    }
-                    .frame(width: Self.gutter, alignment: .leading)
                     VStack(alignment: .leading, spacing: 3) {
-                        if row.isFirst { header }
+                        // A teammate who speaks up here is named; the bot you're talking to isn't.
+                        if case .teammate(let id) = row.sender, row.isFirst {
+                            HStack(spacing: 6) {
+                                Text(store.name(of: id)).font(.system(size: 12, weight: .semibold))
+                                Tag(text: "Teammate")
+                            }
+                            .padding(.leading, 4)
+                        }
                         content(outgoing: false)
                     }
                     Spacer(minLength: 100)
@@ -142,40 +136,6 @@ struct MessageRowView: View {
             }
         }
         .padding(.top, row.isFirst ? 10 : 0)
-    }
-
-    @ViewBuilder
-    private var avatar: some View {
-        switch row.sender {
-        case .pal:
-            AvatarView(pal: pal, size: 28)
-        case .teammate(let id):
-            if let mate = store.pal(id) {
-                AvatarView(pal: mate, size: 28)
-            } else {
-                AvatarView(name: id, seed: id, size: 28)
-            }
-        case .me:
-            EmptyView()
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            switch row.sender {
-            case .pal:
-                Text(pal.name).font(.system(size: 12, weight: .semibold))
-            case .teammate(let id):
-                Text(store.name(of: id)).font(.system(size: 12, weight: .semibold))
-                Tag(text: "Teammate")
-            case .me:
-                EmptyView()
-            }
-            Text(Fmt.time(row.message.createdAt))
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.leading, 4)
     }
 
     @ViewBuilder
