@@ -1,0 +1,240 @@
+#!/usr/bin/python3
+"""Describe what is on a Pal display, as text, from the accessibility tree.
+
+    DISPLAY=:10 pal-screen [--all] [--screen 1280x800]
+
+Prints JSON: every window on screen with its title and position, and for the
+active window (every window with --all) the controls and text in it: role,
+name, text, state, and box in screen pixels. Only what is showing, inside the
+screen given with --screen, is included; layout containers without a name are
+left out, and long trees are cut short. The runtime turns this into the bots' read_screen tool, which sees
+the screen for a fraction of what a screenshot costs.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import time
+
+import gi
+
+gi.require_version("Atspi", "2.0")
+from gi.repository import Atspi  # noqa: E402
+
+MAX_NODES = 350
+MAX_DEPTH = 40
+MAX_TEXT = 300
+MAX_DOCUMENT_TEXT = 3000
+TIME_BUDGET = 8.0
+
+#: Desktop furniture: always there, rarely what a bot is after.
+SKIP_APPS = {"xfce4-panel", "xfdesktop", "xfwm4", "xfsettingsd", "xfce4-session"}
+#: Containers that only arrange other things; shown only when they have a name.
+LAYOUT_ROLES = {
+    "filler", "panel", "scroll pane", "viewport", "layered pane", "split pane",
+    "internal frame", "section", "grouping", "redundant object", "unknown",
+    "autocomplete", "glass pane", "root pane", "option pane", "form", "block quote",
+    "landmark", "list", "list item", "table row", "description list", "article",
+    "header", "footer", "paragraph", "table cell", "tree item",
+}  # fmt: skip
+#: Stands in for each embedded child in a container's text.
+EMBEDDED = "\ufffc"
+NOISE_ROLES = {"separator", "scroll bar", "invalid"}
+#: Web pages: listed, but not walked; the browser tools read pages far better.
+WEB_ROLES = {"document web"}
+WINDOW_ROLES = {"frame", "dialog", "window", "alert", "file chooser", "color chooser"}
+DOCUMENT_ROLES = {"text", "document text", "document frame", "terminal", "entry"}
+STATES = {
+    Atspi.StateType.FOCUSED: "focused",
+    Atspi.StateType.CHECKED: "checked",
+    Atspi.StateType.SELECTED: "selected",
+    Atspi.StateType.PRESSED: "pressed",
+    Atspi.StateType.EXPANDED: "expanded",
+}
+
+
+class Budget:
+    def __init__(self, screen: tuple[int, int] | None) -> None:
+        self.nodes = 0
+        #: What the last listed node was called, to skip labels that repeat it.
+        self.last_label = ""
+        self.deadline = time.monotonic() + TIME_BUDGET
+        self.screen = screen
+
+    def on_screen(self, where: list[int] | None) -> bool:
+        if where is None or self.screen is None:
+            return True
+        x, y, width, height = where
+        return x < self.screen[0] and y < self.screen[1] and x + width > 0 and y + height > 0
+
+    @property
+    def spent(self) -> bool:
+        return self.nodes >= MAX_NODES or time.monotonic() > self.deadline
+
+
+def box(node) -> list[int] | None:
+    try:
+        extents = node.get_extents(Atspi.CoordType.SCREEN)
+    except Exception:
+        return None
+    if extents.width <= 0 or extents.height <= 0:
+        return None
+    return [extents.x, extents.y, extents.width, extents.height]
+
+
+def text_of(node, role: str) -> str:
+    try:
+        if node.get_text_iface() is None:
+            return ""
+        limit = MAX_DOCUMENT_TEXT if role in DOCUMENT_ROLES else MAX_TEXT
+        count = Atspi.Text.get_character_count(node)
+        content = Atspi.Text.get_text(node, 0, min(count, limit)).replace(EMBEDDED, "")
+        content = content.rstrip()
+        return content + ("…" if count > limit and content else "")
+    except Exception:
+        return ""
+
+
+def states_of(node, role: str) -> list[str]:
+    try:
+        states = node.get_state_set()
+    except Exception:
+        return []
+    found = [label for state, label in STATES.items() if states.contains(state)]
+    if states.contains(Atspi.StateType.EXPANDABLE) and not states.contains(
+        Atspi.StateType.EXPANDED
+    ):
+        found.append("collapsed")
+    if states.contains(Atspi.StateType.EDITABLE) and role in DOCUMENT_ROLES:
+        found.append("editable")
+    if not states.contains(Atspi.StateType.SENSITIVE):
+        found.append("disabled")
+    return found
+
+
+def showing(node) -> bool:
+    try:
+        states = node.get_state_set()
+        return states.contains(Atspi.StateType.SHOWING) and states.contains(
+            Atspi.StateType.VISIBLE
+        )
+    except Exception:
+        return False
+
+
+def walk(node, depth: int, out: list, budget: Budget, parent_name: str = "") -> None:
+    if budget.spent or depth > MAX_DEPTH or not showing(node):
+        return
+    try:
+        role = node.get_role_name()
+        name = (node.get_name() or "").strip()
+    except Exception:
+        return
+    if role in NOISE_ROLES:
+        return
+    text = text_of(node, role)
+    if text.strip() == name:
+        text = ""
+    where = box(node)
+    if not budget.on_screen(where):
+        return  # scrolled out of view, and so is everything in it
+    listed = bool(name or text.strip()) or role not in LAYOUT_ROLES
+    own = name or text.strip()
+    if role in LAYOUT_ROLES | {"static", "label"} and own in ("", parent_name, budget.last_label):
+        listed = False  # nothing of its own, or a label repeating what's around it
+    if listed and where is not None:
+        budget.nodes += 1
+        budget.last_label = own
+        out.append(
+            {
+                "depth": depth,
+                "role": role,
+                "name": name,
+                "text": text,
+                "states": states_of(node, role),
+                "box": where,
+            }
+        )
+    if role in WEB_ROLES:
+        return
+    child_depth = depth + 1 if listed and where is not None else depth
+    try:
+        count = node.get_child_count()
+    except Exception:
+        return
+    for index in range(count):
+        if budget.spent:
+            break
+        try:
+            child = node.get_child_at_index(index)
+        except Exception:
+            continue
+        if child is not None:
+            walk(child, child_depth, out, budget, own or parent_name)
+
+
+def windows(detail_all: bool, screen: tuple[int, int] | None) -> list[dict]:
+    desktop = Atspi.get_desktop(0)
+    found = []
+    budget = Budget(screen)
+    for app_index in range(desktop.get_child_count()):
+        app = desktop.get_child_at_index(app_index)
+        if app is None:
+            continue
+        try:
+            app_name = app.get_name() or ""
+        except Exception:
+            continue
+        if app_name in SKIP_APPS:
+            continue
+        for index in range(app.get_child_count()):
+            window = app.get_child_at_index(index)
+            if window is None or not showing(window):
+                continue
+            try:
+                role = window.get_role_name()
+                states = window.get_state_set()
+            except Exception:
+                continue
+            title = (window.get_name() or "").strip()
+            active = states.contains(Atspi.StateType.ACTIVE)
+            if role not in WINDOW_ROLES or not (title or active):
+                continue  # untitled windows are helpers (popups, drag images)
+            entry = {
+                "app": app_name,
+                "title": title,
+                "role": role,
+                "active": active,
+                "box": box(window),
+                "nodes": None,
+                "truncated": False,
+            }
+            found.append(entry)
+            if entry["active"] or detail_all:
+                nodes: list = []
+                walk_children(window, nodes, budget)
+                entry["nodes"] = nodes
+                entry["truncated"] = budget.spent
+    return found
+
+
+def walk_children(window, out: list, budget: Budget) -> None:
+    for index in range(window.get_child_count()):
+        child = window.get_child_at_index(index)
+        if child is not None:
+            walk(child, 0, out, budget)
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    screen = None
+    if "--screen" in args:
+        width, height = args[args.index("--screen") + 1].lower().split("x")
+        screen = (int(width), int(height))
+    json.dump({"windows": windows("--all" in args, screen)}, sys.stdout, ensure_ascii=False)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

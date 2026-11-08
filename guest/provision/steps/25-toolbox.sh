@@ -3,6 +3,7 @@
 
 apt_install \
     scrot xclip tesseract-ocr tesseract-ocr-eng libglib2.0-bin \
+    python3-gi gir1.2-atspi-2.0 \
     chromium fonts-liberation2 \
     imagemagick poppler-utils pandoc ffmpeg \
     ripgrep fd-find sqlite3 zip unzip p7zip-full file tree htop \
