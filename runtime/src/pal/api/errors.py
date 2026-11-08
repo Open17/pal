@@ -68,6 +68,17 @@ async def json_body(request: web.Request) -> dict[str, Any]:
     return body
 
 
+def optional_text(body: dict[str, Any], key: str) -> str:
+    """A free-text field that may be left out or blank; blank means none."""
+
+    value = body.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ApiError(400, "invalid_request", f"{key!r} must be a string")
+    return value.strip()
+
+
 def optional_str(body: dict[str, Any], key: str) -> str | None:
     value = body.get(key)
     if value is None:

@@ -7,7 +7,7 @@ from aiohttp import web
 from pal.config import validate_color
 
 from ..context import context
-from ..errors import ApiError, json_body, optional_str
+from ..errors import ApiError, json_body, optional_str, optional_text
 
 routes = web.RouteTableDef()
 
@@ -28,8 +28,8 @@ async def create_bot(request: web.Request) -> web.Response:
         raise ApiError(400, "invalid_request", "'name' must be a non-empty string")
     agent = await manager.add_bot(
         name,
-        role=optional_str(body, "role") or "",
-        persona=optional_str(body, "persona") or "",
+        role=optional_text(body, "role"),
+        persona=optional_text(body, "persona"),
         color=optional_str(body, "color"),
     )
     payload = agent.to_dict()
