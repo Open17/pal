@@ -5,6 +5,7 @@ struct Composer: View {
     @Environment(PalStore.self) private var store
     let pal: Pal
     @FocusState private var focused: Bool
+    @State private var selection: TextSelection?
 
     private var draft: Binding<String> {
         Binding(get: { store.drafts[pal.id] ?? "" }, set: { store.drafts[pal.id] = $0 })
@@ -38,7 +39,7 @@ struct Composer: View {
 
     private var field: some View {
         HStack(alignment: .bottom, spacing: 6) {
-            TextField("Message \(pal.name)", text: draft, axis: .vertical)
+            TextField("Message \(pal.name)", text: draft, selection: $selection, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .lineLimit(1...10)
@@ -49,9 +50,13 @@ struct Composer: View {
                     return .handled
                 }
                 .onKeyPress(.return, phases: .down) { press in
+                    // Return confirms what an input method (e.g. Japanese) is composing.
+                    if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.hasMarkedText() {
+                        return .ignored
+                    }
                     // Return sends; Shift- or Option-Return starts a new line.
                     if press.modifiers.contains(.shift) || press.modifiers.contains(.option) {
-                        draft.wrappedValue += "\n"
+                        insertNewline()
                     } else {
                         send()
                     }
@@ -73,6 +78,20 @@ struct Composer: View {
             .disabled(!canSend && !busy)
             .help(!canSend && busy ? "Stop (⌘.)" : "Send (Return)")
         }
+    }
+
+    /// A line break where the cursor is, replacing any selected text.
+    private func insertNewline() {
+        var text = draft.wrappedValue
+        guard case .selection(let range) = selection?.indices,
+              range.lowerBound >= text.startIndex, range.upperBound <= text.endIndex else {
+            draft.wrappedValue = text + "\n"
+            return
+        }
+        let offset = text.distance(from: text.startIndex, to: range.lowerBound)
+        text.replaceSubrange(range, with: "\n")
+        draft.wrappedValue = text
+        selection = TextSelection(insertionPoint: text.index(text.startIndex, offsetBy: offset + 1))
     }
 
     private func send() {

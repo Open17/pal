@@ -27,26 +27,27 @@ struct ConversationView: View {
             }
         }
         // Like Messages: a bare avatar up in the toolbar, and the name in a
-        // pill just under it, hanging over the top of the conversation.
+        // pill just under it, hanging over the top of the conversation. With
+        // the computer open beside the chat, the pill sits over the chat alone
+        // and carries the avatar itself.
         .overlay(alignment: .top) {
-            NamePill(name: pal.name) { showInspector.toggle() }
-                .help(detailsHelp)
-                // Follows the toolbar down when the menu bar shows in full screen.
-                .offset(y: -6 + ToolbarDrop.shared.amount)
+            if !showDisplay { namePill(withAvatar: false) }
         }
         // The name is shown in the pill; the title still names the window.
         .navigationTitle(pal.name)
         .toolbar(removing: .title)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Button { showInspector.toggle() } label: {
-                    AvatarView(pal: pal, size: 36, showStatus: true)
-                        .contentShape(Circle())
+            if !showDisplay {
+                ToolbarItem(placement: .principal) {
+                    Button { showInspector.toggle() } label: {
+                        AvatarView(pal: pal, size: 36, showStatus: true)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(detailsHelp)
                 }
-                .buttonStyle(.plain)
-                .help(detailsHelp)
+                .sharedBackgroundVisibility(.hidden)
             }
-            .sharedBackgroundVisibility(.hidden)
             if pal.status.isWorking {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Stop", systemImage: "stop.fill") { store.interrupt(pal.id) }
@@ -93,9 +94,19 @@ struct ConversationView: View {
         }
     }
 
+    private func namePill(withAvatar: Bool) -> some View {
+        NamePill(name: pal.name, pal: withAvatar ? pal : nil) { showInspector.toggle() }
+            .help(detailsHelp)
+            // Follows the toolbar down when the menu bar shows in full screen.
+            .offset(y: -6 + ToolbarDrop.shared.amount)
+    }
+
     private var chat: some View {
         MessageList(pal: pal)
             .overlay(alignment: .top) { topFade }
+            .overlay(alignment: .top) {
+                if showDisplay { namePill(withAvatar: true) }
+            }
             .safeAreaInset(edge: .top, spacing: 0) { SignInBanner() }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .background(Color.chatBackground)
@@ -151,11 +162,18 @@ struct ConversationView: View {
 /// The bot's name with a chevron, in a glass pill under its avatar.
 private struct NamePill: View {
     let name: String
+    /// Shown inside the pill when there's no avatar in the toolbar above it.
+    var pal: Pal?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 3) {
+                if let pal {
+                    AvatarView(pal: pal, size: 18, showStatus: true)
+                        .padding(.trailing, 3)
+                        .padding(.leading, -5)
+                }
                 Text(name)
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
@@ -227,7 +245,8 @@ private struct SignInBanner: View {
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.statusOrange.opacity(0.1)))
             .padding(.horizontal, 20)
-            .padding(.top, 10)
+            // Clears the name pill that hangs over the top of the chat.
+            .padding(.top, 30)
         }
     }
 }
