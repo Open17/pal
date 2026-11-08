@@ -56,11 +56,13 @@ public struct PortForward: Codable, Equatable, Sendable {
         self.guestPort = guestPort
     }
 
-    /// SSH, the runtime API, the operator display, and sixteen bot displays.
+    /// SSH, the runtime API, the operator and shared-browser displays, and
+    /// sixteen bot displays.
     public static let defaults: [PortForward] =
         [
             PortForward(name: "ssh", hostPort: 52022, guestPort: 22),
             PortForward(name: "api", hostPort: 8765, guestPort: 8765),
             PortForward(name: "vnc-operator", hostPort: 5901, guestPort: 5901),
+            PortForward(name: "vnc-browser", hostPort: 5902, guestPort: 5902),
         ] + (10...25).map { PortForward(name: "vnc-\($0)", hostPort: UInt16(5900 + $0), guestPort: UInt16(5900 + $0)) }
 }

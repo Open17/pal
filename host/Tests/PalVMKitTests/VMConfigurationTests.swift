@@ -50,9 +50,9 @@ import Testing
 @Suite struct PortForwardTests {
     @Test func defaultsCoverSSHTheAPIAndEveryDisplay() {
         let names = PortForward.defaults.map(\.name)
-        #expect(names.prefix(3) == ["ssh", "api", "vnc-operator"])
+        #expect(names.prefix(4) == ["ssh", "api", "vnc-operator", "vnc-browser"])
         #expect(PortForward.defaults.first { $0.name == "ssh" }?.hostPort == 52022)
-        #expect(PortForward.defaults.filter { $0.name.hasPrefix("vnc-") }.count == 17)
+        #expect(PortForward.defaults.filter { $0.name.hasPrefix("vnc-") }.count == 18)
         #expect(Set(PortForward.defaults.map(\.hostPort)).count == PortForward.defaults.count)
     }
 }

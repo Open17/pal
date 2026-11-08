@@ -24,6 +24,7 @@ from pal.log import get_logger
 from pal.memory import MemoryService
 from pal.messaging import ConversationLog, EventBus, Messenger
 from pal.tools import ToolProvider, ToolRegistry
+from pal.tools.browser import BrowserTools, SharedBrowser
 from pal.tools.builtin import DisplayTools, MemoryTools, TeamTools
 from pal.tools.computer import ComputerTools
 
@@ -55,12 +56,16 @@ class PalRuntime:
         self.state = BotStateStore(paths.state / "bots.json")
         self.team = BotTeam(config, self.state, self.messenger, self.bus)
 
+        self.browser = SharedBrowser(
+            self.displays, paths.data / "browser", paths.shared_workspace / "downloads"
+        )
         self.tools = ToolRegistry(
             [
                 MemoryTools(self.memory),
                 TeamTools(self.team),
                 DisplayTools(self.displays),
                 ComputerTools(self.displays, paths.data / "cache" / "screens"),
+                BrowserTools(self.browser),
             ]
         )
         for provider in extra_tools or ():
@@ -133,6 +138,7 @@ class PalRuntime:
         if self.api is not None:
             await self.api.stop()
         await self.team.stop()
+        await self.browser.close()
         await self.vnc.close()
         log.info("Pal stopped")
 
