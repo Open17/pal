@@ -56,6 +56,10 @@ final class PalClient {
         try decoder.decode(T.self, from: try await data("POST", path, body))
     }
 
+    func put<T: Decodable>(_ path: String, _ body: any Encodable) async throws -> T {
+        try decoder.decode(T.self, from: try await data("PUT", path, body))
+    }
+
     func patch<T: Decodable>(_ path: String, _ body: any Encodable) async throws -> T {
         try decoder.decode(T.self, from: try await data("PATCH", path, body))
     }
