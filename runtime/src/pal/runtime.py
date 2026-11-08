@@ -15,6 +15,8 @@ from pal.bots import (
     BotStateStore,
     BotTeam,
     ClientFactory,
+    Greeter,
+    ModelGreeter,
     SessionOptionsBuilder,
     auth_status,
     default_client_factory,
@@ -22,6 +24,7 @@ from pal.bots import (
 )
 from pal.config import (
     BOTS_DIR_NAME,
+    USER_ID,
     BotDefinition,
     ConfigError,
     PalConfig,
@@ -32,7 +35,7 @@ from pal.config import (
 from pal.displays import DisplayBackend, DisplayManager, VncProxy, create_backend
 from pal.log import get_logger
 from pal.memory import MemoryService
-from pal.messaging import ConversationLog, EventBus, EventType, Messenger
+from pal.messaging import ConversationLog, EventBus, EventType, Messenger, conversation_id
 from pal.tools import ToolProvider, ToolRegistry
 from pal.tools.browser import Browsers, BrowserTools, LoginSync
 from pal.tools.builtin import DisplayTools, MemoryTools, TeamTools
@@ -49,6 +52,7 @@ class PalRuntime:
         client_factory: ClientFactory = default_client_factory,
         display_backend: DisplayBackend | None = None,
         extra_tools: list[ToolProvider] | None = None,
+        greeter: Greeter | None = None,
     ) -> None:
         self.config = config
         paths = config.paths
@@ -86,6 +90,9 @@ class PalRuntime:
             self.tools.add(provider)
 
         self._client_factory = client_factory
+        self._greeter = greeter or ModelGreeter(
+            paths.secrets, paths.workspaces, cli_path=config.agent.cli_path
+        )
         self._options = SessionOptionsBuilder(
             config,
             self.tools,
@@ -110,6 +117,7 @@ class PalRuntime:
             bus=self.bus,
             display_name=self.team.display_name,
             client_factory=self._client_factory,
+            greeter=self._greeter,
         )
 
     # -- the team --------------------------------------------------------------
@@ -145,6 +153,7 @@ class PalRuntime:
         # Announced before it starts, so listeners know the bot before its status.
         self.bus.publish(EventType.BOT_ADDED, bot=bot.id, **agent.to_dict())
         agent.start()
+        agent.greet()
         log.info("added bot %s (%s)", bot.id, bot.name)
         return agent
 
@@ -182,6 +191,14 @@ class PalRuntime:
         for directory in (paths.workspaces, paths.data, paths.state):
             directory.mkdir(parents=True, exist_ok=True)
 
+    async def _greet_new_chats(self) -> None:
+        """Every bot says hello first: those you've never talked to do it now."""
+
+        for agent in self.team.agents:
+            chat = conversation_id(USER_ID, agent.id)
+            if not await self.messenger.log.read(chat, limit=1):
+                agent.greet()
+
     async def start(self) -> None:
         scrub_api_credentials()
         self._prepare_directories()
@@ -194,6 +211,7 @@ class PalRuntime:
         await self.displays.restore()
         await self.vnc.start()
         self.team.start()
+        await self._greet_new_chats()
 
         ctx = ApiContext(
             config=self.config,
