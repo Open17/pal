@@ -58,13 +58,16 @@ public struct LaunchAgent: Sendable {
 
     public var isLoaded: Bool { (try? launchctl(["print", service])) != nil }
 
-    /// Turn the VM on.
+    /// Turn the VM on. Call only while palvmd isn't running.
     public func start() throws {
         try install()
         try launchctl(["enable", service])
-        if !isLoaded {
-            try launchctl(["bootstrap", domain, plistURL.path])
+        // launchd keeps the definition it loaded: reload it, or a changed one
+        // (say, palvmd installed somewhere else) would be ignored.
+        if isLoaded {
+            try launchctl(["bootout", service])
         }
+        try launchctl(["bootstrap", domain, plistURL.path])
         try launchctl(["kickstart", service])
     }
 
