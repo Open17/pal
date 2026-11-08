@@ -57,6 +57,7 @@ class PalRuntime:
         self.displays.register(config.bot_ids)
         self.state = BotStateStore(paths.state / "bots.json")
         self.team = BotTeam(config, self.state, self.messenger, self.bus)
+        self.displays.is_working = self.team.is_working
 
         self.browsers = Browsers(self.displays, paths.data / "cache" / "screens")
         self.logins = LoginSync(

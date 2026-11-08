@@ -83,8 +83,8 @@ class SessionOptionsBuilder:
 
     def _hooks(self, bot_id: str) -> dict[str, list[HookMatcher]]:
         hooks: dict[str, list[HookMatcher]] = {
-            # Shell commands may be driving the desktop; keep a live display awake.
-            "PostToolUse": [HookMatcher(matcher="Bash", hooks=[self._touch_display(bot_id)])],
+            # Anything the bot does starts its display's idle countdown over.
+            "PostToolUse": [HookMatcher(matcher=None, hooks=[self._touch_display(bot_id)])],
         }
         matcher = self.tools.display_tool_matcher()
         if matcher:

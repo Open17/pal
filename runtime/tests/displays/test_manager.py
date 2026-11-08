@@ -184,3 +184,18 @@ async def test_waking_thaws_a_display_that_was_already_asleep(
     await manager.ensure_awake("atlas")
     assert manager.get("atlas").state == "running"
     assert backend.calls == [("thaw", "atlas")]
+
+
+async def test_a_working_bots_display_stays_awake(tmp_path: Path, backend, clock) -> None:
+    manager = make_manager(tmp_path, backend, clock)
+    working = {"atlas"}
+    manager.is_working = lambda owner: owner in working
+    await manager.ensure_awake("atlas")
+    clock.now += 3600  # a long task, nothing touching the display
+    assert await manager.sleep_idle() == []
+    # Done: the idle time counts from when it finished, not from the start.
+    working.clear()
+    clock.now += 400
+    assert await manager.sleep_idle() == []
+    clock.now += 100
+    assert await manager.sleep_idle() == ["atlas"]

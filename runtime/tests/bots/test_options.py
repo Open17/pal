@@ -46,6 +46,8 @@ def test_options_for_a_bot(tmp_path: Path) -> None:
     assert options.env["DISPLAY"] == ":10"
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
     assert "PreToolUse" not in options.hooks  # no provider needs a display
+    (activity,) = options.hooks["PostToolUse"]
+    assert activity.matcher is None  # every tool the bot uses counts as activity
 
     prompt = options.system_prompt["append"]
     assert options.system_prompt["preset"] == "claude_code"
