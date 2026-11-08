@@ -183,7 +183,8 @@ nonisolated enum ServerEvent: Decodable, Sendable {
     case turnCompleted(bot: String, messageId: String?)
     case settingsChanged(bot: String, model: String, effort: String)
     case botAdded(String)
-    case botUpdated(bot: String, color: String?)
+    /// A bot's name, role, instructions, or color changed.
+    case botUpdated(Pal)
     case botRemoved(String)
     case display(Display)
     case unknown
@@ -191,7 +192,7 @@ nonisolated enum ServerEvent: Decodable, Sendable {
     private enum K: String, CodingKey { case type, data }
     private enum D: String, CodingKey {
         case message, bot, status, queued, waitingOn, text, toolUseId, tool, input, isError
-        case messageId, model, effort, display, color
+        case messageId, model, effort, display
     }
 
     init(from decoder: any Decoder) throws {
@@ -238,7 +239,7 @@ nonisolated enum ServerEvent: Decodable, Sendable {
         case "bot.added":
             self = .botAdded(try bot())
         case "bot.updated":
-            self = .botUpdated(bot: try bot(), color: try d.decodeIfPresent(String.self, forKey: .color))
+            self = .botUpdated(try c.decode(Pal.self, forKey: .data))
         case "bot.removed":
             self = .botRemoved(try bot())
         case "display.state":
@@ -259,6 +260,16 @@ nonisolated struct ToolCall: Identifiable, Hashable, Sendable {
 }
 
 // MARK: - Request bodies
+
+/// `PATCH /v1/bots/{id}`: only the fields that are set change.
+nonisolated struct BotEdit: Encodable, Equatable {
+    var name: String?
+    var role: String?
+    var persona: String?
+    var model: String?
+    var effort: String?
+    var color: String?
+}
 
 nonisolated struct ModelUpdate: Encodable {
     var model: String?
