@@ -503,9 +503,12 @@ struct RichText: View {
 
 /// A compact pill summarizing tool use, expandable into each step.
 struct WorkGroupView: View {
+    @Environment(PalStore.self) private var store
     let calls: [ToolCall]
     let active: Bool
-    @State private var expanded = false
+
+    private var key: String? { calls.first?.id }
+    private var expanded: Bool { key.map(store.expandedWork.contains) ?? false }
 
     var body: some View {
         let failures = calls.filter(\.failed).count
@@ -513,7 +516,10 @@ struct WorkGroupView: View {
         if !calls.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Button {
-                    withAnimation(.snappy(duration: 0.25)) { expanded.toggle() }
+                    guard let key else { return }
+                    withAnimation(.snappy(duration: 0.25)) {
+                        if expanded { store.expandedWork.remove(key) } else { store.expandedWork.insert(key) }
+                    }
                 } label: {
                     HStack(spacing: 7) {
                         if active {
