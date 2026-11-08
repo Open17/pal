@@ -13,6 +13,7 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Locator, Page
 
 from ..base import ToolContext, ToolProvider, ToolResult, error_result, text_result
+from ..pace import key_delay_ms
 from .session import BrowserError, Browsers, normalize_url
 
 MAX_SNAPSHOT = 15000
@@ -171,8 +172,8 @@ class BrowserTools(ToolProvider):
 
         @tool(
             "browser_type",
-            "Fill a field with text (replacing what's there), found like browser_click. Set "
-            "submit to press Enter afterwards.",
+            "Type text into a field (replacing what's there), found like browser_click. It "
+            "is typed key by key, as a person would. Set submit to press Enter afterwards.",
             {
                 "type": "object",
                 "properties": {
@@ -187,7 +188,13 @@ class BrowserTools(ToolProvider):
             async def run() -> ToolResult:
                 page = await browsers.page(bot_id)
                 field = locate(page, args)
-                await field.fill(args["value"], timeout=ACTION_TIMEOUT_MS)
+                text = args["value"]
+                delay = key_delay_ms(len(text))
+                await field.fill("", timeout=ACTION_TIMEOUT_MS)
+                # Key by key, so whoever watches the display sees it typed.
+                await field.press_sequentially(
+                    text, delay=delay, timeout=ACTION_TIMEOUT_MS + len(text) * delay
+                )
                 if args.get("submit"):
                     await field.press("Enter", timeout=ACTION_TIMEOUT_MS)
                     await page.wait_for_load_state("domcontentloaded", timeout=ACTION_TIMEOUT_MS)
