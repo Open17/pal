@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import shutil
 import signal
 from dataclasses import replace
 from pathlib import Path
@@ -195,7 +196,10 @@ class PalRuntime:
         return agent
 
     async def remove_bot(self, bot_id: str) -> None:
-        """Remove a bot: it stops, and its display closes. Its memories are kept."""
+        """Remove a bot and everything that was its own, so a new bot with the same
+        name starts fresh: its conversations (with the user and with teammates),
+        session, model choice, private knowledge, display windows and browser
+        profile. Shared team memory and files in the team's folder stay."""
 
         if len(self.team.agents) <= 1:
             raise ConfigError("Pal needs at least one bot")
@@ -206,7 +210,13 @@ class PalRuntime:
             self.config, bots=tuple(b for b in self.config.bots if b.id != bot_id)
         )
         await self.vnc.remove(bot_id)
-        await self.displays.unregister(bot_id)
+        await self.displays.unregister(bot_id)  # also quits its browser first
+        await self.messenger.log.delete_with(bot_id)
+        self.state.forget(bot_id)
+        await self.memory.forget_bot(bot_id)
+        await asyncio.to_thread(
+            shutil.rmtree, self.config.paths.data / "browsers" / bot_id, ignore_errors=True
+        )
         self.bus.publish(EventType.BOT_REMOVED, bot=bot_id)
         log.info("removed bot %s", bot_id)
 
