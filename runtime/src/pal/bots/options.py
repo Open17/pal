@@ -38,9 +38,7 @@ class SessionOptionsBuilder:
         self, bot: BotDefinition, settings: ModelSettings, *, resume: str | None
     ) -> ClaudeAgentOptions:
         paths, agent = self.config.paths, self.config.agent
-        workspace = paths.bot_workspace(bot.id)
-        workspace.mkdir(parents=True, exist_ok=True)
-        paths.shared_workspace.mkdir(parents=True, exist_ok=True)
+        paths.workspaces.mkdir(parents=True, exist_ok=True)
 
         prompt = system_prompt(
             PromptContext(
@@ -57,14 +55,13 @@ class SessionOptionsBuilder:
             **session_environment(paths.secrets),
             **self.displays.environment(bot.id),
             "PAL_BOT_ID": bot.id,
-            "PAL_WORKSPACE": str(workspace),
+            "PAL_WORKSPACE": str(paths.workspaces),
         }
         options = ClaudeAgentOptions(
             model=settings.model,
             effort=settings.effort,
             system_prompt={"type": "preset", "preset": "claude_code", "append": prompt},
-            cwd=str(workspace),
-            add_dirs=[str(paths.shared_workspace)],
+            cwd=str(paths.workspaces),
             mcp_servers=self.tools.mcp_servers(ToolContext(bot.id)),
             allowed_tools=self.tools.allowed_tools(),
             permission_mode=agent.permission_mode,

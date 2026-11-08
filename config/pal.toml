@@ -10,7 +10,7 @@ default = "claude-sonnet-5-5"
 effort = "high"          # low | medium | high | xhigh | max
 
 [paths]
-workspaces = "~/workspaces"      # each bot's main folder lives here
+workspaces = "~/workspaces"      # the team's shared main folder
 data = "~/.local/share/pal"      # memory, conversations, runtime state
 
 [agent]

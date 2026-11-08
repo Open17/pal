@@ -28,8 +28,7 @@ top of the host and talks to both the host daemon and the runtime API.
 │  │   ├─ pal-display@<owner>: Xvnc :N + xfce4-session                       │  │
 │  │   └─ apps launched with pal-open                                        │  │
 │  │                                                                         │  │
-│  │  ~/workspaces/<bot>/   each bot's main folder                           │  │
-│  │  ~/workspaces/shared/  files every bot can see                          │  │
+│  │  ~/workspaces/         the team's shared main folder                    │  │
 │  └─────────────────────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -73,8 +72,8 @@ model/effort override). The runtime keeps one agent SDK client per bot, with:
   Both can be changed globally or per bot at runtime through the API. A model
   change is applied live; an effort change reconnects the bot and resumes the
   same session, so the conversation is not lost.
-- **Working directory** — `~/workspaces/<bot-id>/`, with `~/workspaces/shared/`
-  added as an extra directory. Bots can still use the whole machine.
+- **Working directory** — `~/workspaces/`, one folder the whole team shares;
+  bots share the rest of the machine too.
 - **Session persistence** — each bot's session id is stored so conversations
   resume after the runtime or VM restarts.
 - **Authentication** — a signed-in Claude account. The runtime passes an OAuth
@@ -174,9 +173,7 @@ contents — as untrusted input.
 ## Data layout inside the guest
 
 ```
-~/workspaces/                      bots' main folder
-  shared/                          shared between all bots
-  <bot-id>/                        one folder per bot (its working directory)
+~/workspaces/                      the team's main folder, shared by every bot
 ~/.config/pal/
   pal.toml                         runtime configuration
   bots/<bot-id>.toml               bot definitions
