@@ -46,13 +46,19 @@ def validate_effort(value: str, *, where: str) -> Effort:
 
 
 COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+#: Black in light mode and white in dark mode; the app picks which.
+MONO_COLOR = "mono"
 
 
 def validate_color(value: str, *, where: str) -> str:
-    """A bot color is ``#RRGGBB``; returned in upper case."""
+    """A bot color is ``#RRGGBB`` (returned in upper case) or ``mono``."""
 
+    if value.lower() == MONO_COLOR:
+        return MONO_COLOR
     if not COLOR_PATTERN.match(value):
-        raise ConfigError(f"{where}: color must look like #5B8DEF (got {value!r})")
+        raise ConfigError(
+            f"{where}: color must look like #5B8DEF, or be {MONO_COLOR!r} (got {value!r})"
+        )
     return value.upper()
 
 
