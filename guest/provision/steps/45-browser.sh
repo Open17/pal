@@ -31,6 +31,22 @@ x-scheme-handler/http=chromium.desktop
 x-scheme-handler/https=chromium.desktop
 MIME
 
+# The address bar searches with the engine the user chose, and new browsers
+# start on the new tab page. Policies apply to every profile, old and new.
+install -d /etc/chromium/policies/managed
+cat >/etc/chromium/policies/managed/pal.json <<'POLICY'
+{
+  "DefaultSearchProviderEnabled": true,
+  "DefaultSearchProviderName": "Google",
+  "DefaultSearchProviderKeyword": "google.com",
+  "DefaultSearchProviderSearchURL": "https://www.google.com/search?q={searchTerms}",
+  "DefaultSearchProviderSuggestURL": "https://www.google.com/complete/search?client=chrome&q={searchTerms}",
+  "DefaultSearchProviderIconURL": "https://www.google.com/favicon.ico",
+  "RestoreOnStartup": 5,
+  "HomepageIsNewTabPage": true
+}
+POLICY
+
 # Earlier guests ran one browser for everyone on a display of its own.
 as_pal systemctl --user stop pal-display-browser.slice 2>/dev/null || true
 rm -f "$PAL_CONFIG/displays/browser.env"
