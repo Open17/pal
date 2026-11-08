@@ -74,9 +74,10 @@ def system_prompt(context: PromptContext) -> str:
         "an acknowledgement (thanks, ok, sounds good), `react` to it with an emoji and end "
         "your turn with no text: then no message is sent. Answer in words whenever you "
         "have information to give.\n\n"
-        "Lines in brackets before a message, like `[The user reacted 👍 to your message: "
-        '"…"]`, tell you what happened in the chat since your last turn. They are not '
-        "something to reply to on their own.",
+        "When the user reacts to one of your messages, you get a turn for it; answer only "
+        "if the reaction calls for it. Lines in brackets before a message, like `[Scout "
+        'reacted 👍 to your message: "…"]`, tell you what happened in the chat since your '
+        "last turn. They are not something to reply to on their own.",
         "# Memory\n\n"
         "You have long-term memory that lasts across conversations and restarts: shared "
         "team memory, visible to every bot, and your own private knowledge. Save things "
@@ -100,6 +101,15 @@ def frame_message(message: Message, sender_name: str) -> str:
         whose = "your" if quote.get("sender") == message.recipient else "their own"
         return f'[Replying to {whose} message: "{quote.get("content", "")}"]\n\n{message.content}'
 
+    if message.kind == "reaction":
+        quote = message.metadata.get("quote") or {}
+        return (
+            f"[{sender_name[0].upper()}{sender_name[1:]} reacted {message.content} to your "
+            f'message: "{quote.get("content", "")}". This is a reaction, not a message. Answer '
+            "only if it calls for it: a 👎 or ❓ usually deserves a short follow-up or a fix, "
+            "while ❤️, 👍 or 😂 usually need nothing. To let it pass, end your turn with no "
+            "text and nothing is sent.]"
+        )
     if message.kind == "request":
         header = (
             f"[Message from {sender_name} (`{message.sender}`). They are waiting for your "
