@@ -255,11 +255,9 @@ private struct MessageList: View {
                                 MessageRowView(row: row, pal: pal)
                             case let .work(_, calls):
                                 WorkGroupView(calls: calls, active: false)
-                                    .padding(.leading, MessageRowView.gutter)
                                     .padding(.vertical, 3)
                             case .team(_, let messages):
                                 TeamExchangeView(messages: messages, palId: pal.id)
-                                    .padding(.leading, MessageRowView.gutter)
                                     .padding(.vertical, 3)
                             case .note(let message):
                                 NoteView(message: message)
@@ -420,21 +418,18 @@ private struct LiveTail: View {
                     Label("Waiting on \(store.name(of: mate))", systemImage: "hourglass")
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .padding(.leading, MessageRowView.gutter)
                 }
                 if !calls.isEmpty {
                     WorkGroupView(calls: calls, active: true)
-                        .padding(.leading, MessageRowView.gutter)
                 }
                 if let thought = store.thinking[pal.id], text.isEmpty {
                     Text(thought.previewLine)
                         .font(.system(size: 11.5).italic())
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
-                        .padding(.leading, MessageRowView.gutter + 4)
+                        .padding(.leading, 4)
                 }
                 HStack(alignment: .top, spacing: 0) {
-                    Color.clear.frame(width: MessageRowView.gutter, height: 1)
                     if text.isEmpty {
                         TypingIndicator()
                     } else {
