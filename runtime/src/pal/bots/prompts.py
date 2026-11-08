@@ -94,7 +94,12 @@ def frame_message(message: Message, sender_name: str) -> str:
     """The prompt a bot sees for an incoming message."""
 
     if message.kind == "chat":
-        return message.content
+        quote = message.metadata.get("quote")
+        if not isinstance(quote, dict):
+            return message.content
+        whose = "your" if quote.get("sender") == message.recipient else "their own"
+        return f'[Replying to {whose} message: "{quote.get("content", "")}"]\n\n{message.content}'
+
     if message.kind == "request":
         header = (
             f"[Message from {sender_name} (`{message.sender}`). They are waiting for your "

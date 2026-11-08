@@ -225,12 +225,29 @@ class BotTeam(TeamGateway):
 
     # -- user messages -------------------------------------------------------
 
-    async def send_from_user(self, bot_id: str, content: str) -> Message:
+    async def send_from_user(
+        self, bot_id: str, content: str, *, reply_to: str | None = None
+    ) -> Message:
+        """Send the user's message to a bot, optionally as a reply to an earlier
+        message in their chat, which the bot sees quoted."""
+
         agent = self.agent(bot_id)
         if not content.strip():
             raise ValueError("message is empty")
+        metadata = {}
+        if reply_to is not None:
+            quoted = await self.messenger.log.find(conversation_id(USER_ID, bot_id), reply_to)
+            if quoted is None or quoted.kind == "reaction":
+                raise UnknownMessageError(reply_to)
+            metadata["quote"] = {"sender": quoted.sender, "content": excerpt(quoted.content, 300)}
         message = await self.messenger.record(
-            Message(sender=USER_ID, recipient=bot_id, content=content)
+            Message(
+                sender=USER_ID,
+                recipient=bot_id,
+                content=content,
+                reply_to=reply_to,
+                metadata=metadata,
+            )
         )
         agent.submit(WorkItem(message))
         return message
