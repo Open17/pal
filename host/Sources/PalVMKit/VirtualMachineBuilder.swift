@@ -87,8 +87,11 @@ public struct VirtualMachineBuilder {
         guard FileManager.default.fileExists(atPath: diskURL.path) else {
             throw PalHostError.missingDisk(diskURL.path)
         }
+        // Explicitly cached with full synchronization. The automatic caching mode
+        // corrupts ext4 in Linux guests: files silently change on disk, which
+        // shows up as crashes, kernel memory errors, and I/O errors.
         let disk = try VZDiskImageStorageDeviceAttachment(
-            url: diskURL, readOnly: false, cachingMode: .automatic, synchronizationMode: .full
+            url: diskURL, readOnly: false, cachingMode: .cached, synchronizationMode: .full
         )
         var devices: [VZStorageDeviceConfiguration] = [VZVirtioBlockDeviceConfiguration(attachment: disk)]
         if let seed = configuration.seedImage {
