@@ -26,11 +26,12 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from pal.config import BotDefinition, ModelSettings
+from pal.config import USER_ID, BotDefinition, ModelSettings
 from pal.log import get_logger
-from pal.messaging import EventBus, EventType, Message, Messenger, new_id
+from pal.messaging import EventBus, EventType, Message, Messenger, excerpt, new_id
 from pal.tools.builtin import TeamMessagingError
 
+from .greeting import GREETING_TIMEOUT_SECONDS, Greeter, fallback_greeting
 from .prompts import frame_message
 from .state import BotStateStore
 
@@ -71,6 +72,10 @@ class WorkItem:
     chain: tuple[str, ...] = ()
 
 
+class _Greeting:
+    """Inbox marker: say hello to the user (see ``BotAgent.greet``)."""
+
+
 @dataclass
 class TurnOutcome:
     text: str
@@ -92,8 +97,10 @@ class BotAgent:
         bus: EventBus,
         display_name: Callable[[str], str],
         client_factory: ClientFactory = default_client_factory,
+        greeter: Greeter | None = None,
     ) -> None:
         self.definition = definition
+        self._greeter = greeter
         self._options_factory = options_factory
         self._settings = settings
         self._state = state
@@ -104,7 +111,7 @@ class BotAgent:
 
         self.status: BotStatus = "offline"
         self.last_error: str | None = None
-        self._inbox: asyncio.Queue[WorkItem] = asyncio.Queue()
+        self._inbox: asyncio.Queue[WorkItem | _Greeting] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._client: AgentClient | None = None
         self._client_settings: ModelSettings | None = None
@@ -153,12 +160,19 @@ class BotAgent:
                 await self._worker
             self._worker = None
         while not self._inbox.empty():
-            self._fail(self._inbox.get_nowait(), f"{self.definition.name} shut down")
+            item = self._inbox.get_nowait()
+            if isinstance(item, WorkItem):
+                self._fail(item, f"{self.definition.name} shut down")
         await self._disconnect()
         self._set_status("offline")
 
     def submit(self, item: WorkItem) -> None:
         self._inbox.put_nowait(item)
+
+    def greet(self) -> None:
+        """Say hello to the user, before anything else in the inbox."""
+
+        self._inbox.put_nowait(_Greeting())
 
     def note(self, text: str) -> None:
         """Tell the bot something with its next message, without starting a turn."""
@@ -203,12 +217,40 @@ class BotAgent:
         while True:
             item = await self._inbox.get()
             try:
-                await self._handle(item)
+                if isinstance(item, _Greeting):
+                    await self._greet()
+                else:
+                    await self._handle(item)
             except asyncio.CancelledError:
-                self._fail(item, f"{self.definition.name} shut down")
+                if isinstance(item, WorkItem):
+                    self._fail(item, f"{self.definition.name} shut down")
                 raise
             except Exception:  # never let one message kill the bot
-                log.exception("%s: unexpected failure handling %s", self.id, item.message.id)
+                what = item.message.id if isinstance(item, WorkItem) else "its greeting"
+                log.exception("%s: unexpected failure handling %s", self.id, what)
+                self._set_status("idle")
+
+    async def _greet(self) -> None:
+        """Send the user a first message, and tell the bot what it said."""
+
+        self._set_status("busy")
+        text = ""
+        if self._greeter is not None:
+            try:
+                async with asyncio.timeout(GREETING_TIMEOUT_SECONDS + 5):
+                    text = (await self._greeter(self.definition)).strip()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("%s: could not write a greeting (%s); using the default", self.id, exc)
+        text = text or fallback_greeting(self.definition)
+        await self._messenger.record(
+            Message(sender=self.id, recipient=USER_ID, content=text, metadata={"greeting": True})
+        )
+        self.note(
+            f'[When you joined the team you said hello to the user with: "{excerpt(text, 300)}"]'
+        )
+        self._set_status("idle")
 
     async def _handle(self, item: WorkItem) -> None:
         self._current = item
