@@ -39,6 +39,7 @@ enum Connection: Equatable {
 enum SheetRoute: Identifiable {
     case botSettings(Pal)
     case newMemory(scope: String)
+    case editMemory(scope: String, entry: MemoryEntry)
     case newBot
     /// A read-only look at two bots' conversation, opened from a chat.
     case thread(id: String, focus: String?)
@@ -47,6 +48,7 @@ enum SheetRoute: Identifiable {
         switch self {
         case .botSettings(let p): "bot-\(p.id)"
         case .newMemory(let scope): "memory-\(scope)"
+        case let .editMemory(scope, entry): "memory-\(scope)-\(entry.id)"
         case .newBot: "new-bot"
         case .thread(let id, _): "thread-\(id)"
         }
@@ -703,6 +705,11 @@ final class PalStore {
 
     func saveMemory(_ input: MemoryInput, scope: String) async throws {
         let _: MemoryEntry = try await client.post("/v1/memory/\(scope)", input)
+        await loadMemory()
+    }
+
+    func updateMemory(_ id: String, _ input: MemoryInput, scope: String) async throws {
+        let _: MemoryEntry = try await client.put("/v1/memory/\(scope)/\(id)", input)
         await loadMemory()
     }
 

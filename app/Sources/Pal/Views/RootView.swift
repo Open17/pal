@@ -46,6 +46,7 @@ struct RootView: View {
             switch route {
             case .botSettings(let pal): BotSettingsSheet(pal: pal)
             case .newMemory(let scope): NewMemorySheet(scope: scope)
+            case let .editMemory(scope, entry): NewMemorySheet(scope: scope, editing: entry)
             case .newBot: NewBotSheet()
             case let .thread(id, focus): TeamThreadSheet(id: id, focus: focus)
             }
