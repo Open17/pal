@@ -8,6 +8,9 @@
 
 [Unit]
 Description=Pal display for %i
+# A display that keeps failing (say, without its settings) stops retrying.
+StartLimitIntervalSec=60
+StartLimitBurst=4
 
 [Service]
 # Ready once the desktop's window manager is running (see pal-display-session).
