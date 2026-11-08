@@ -72,6 +72,14 @@ struct MemoryView: View {
             }
         }
         .task { await store.loadMemory() }
+        // Opened from search: show that entry, in its own list.
+        .onChange(of: store.focusedMemory, initial: true) { _, focus in
+            guard let focus else { return }
+            store.focusedMemory = nil
+            query = ""
+            scope = focus.scope
+            selected = focus.id
+        }
         .confirmationDialog("Delete “\(pendingDelete?.title ?? "")”?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })) {
             Button("Delete", role: .destructive) {
                 if let entry = pendingDelete { store.deleteMemory(entry, scope: scope) }
