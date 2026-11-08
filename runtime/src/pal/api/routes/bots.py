@@ -32,9 +32,7 @@ async def create_bot(request: web.Request) -> web.Response:
         persona=optional_text(body, "persona"),
         color=optional_str(body, "color"),
     )
-    payload = agent.to_dict()
-    payload["persona"] = agent.definition.persona
-    return web.json_response(payload, status=201)
+    return web.json_response(agent.to_dict(), status=201)
 
 
 @routes.delete("/v1/bots/{bot_id}")
@@ -55,34 +53,42 @@ def _manager(request: web.Request):
 
 @routes.get("/v1/bots/{bot_id}")
 async def get_bot(request: web.Request) -> web.Response:
-    agent = context(request).team.agent(request.match_info["bot_id"])
-    payload = agent.to_dict()
-    payload["persona"] = agent.definition.persona
-    return web.json_response(payload)
+    return web.json_response(context(request).team.agent(request.match_info["bot_id"]).to_dict())
 
 
 @routes.patch("/v1/bots/{bot_id}")
 async def update_bot(request: web.Request) -> web.Response:
-    """Change a bot's model, effort, or color. ``{"reset": true}`` returns its model
-    and effort to the defaults; its color stays."""
+    """Change a bot's model, effort, name, role, instructions (``persona``), or
+    color. ``{"reset": true}`` returns its model and effort to the defaults; the
+    rest stays."""
 
     team = context(request).team
     bot_id = request.match_info["bot_id"]
     body = await json_body(request)
     team.agent(bot_id)  # unknown bots are a 404, before anything changes
-    color = optional_str(body, "color")
-    if color is not None:
-        # Checked up front so a bad color doesn't leave the rest half-applied.
+    identity = {
+        "name": optional_str(body, "name"),
+        "role": body.get("role"),
+        "persona": body.get("persona"),
+        "color": optional_str(body, "color"),
+    }
+    for key in ("role", "persona"):
+        if identity[key] is not None and not isinstance(identity[key], str):
+            raise ApiError(400, "invalid_request", f"{key!r} must be a string")
+    identity = {key: value for key, value in identity.items() if value is not None}
+    if identity:
+        # Checked up front so a bad change doesn't leave the rest half-applied.
         manager = _manager(request)
-        validate_color(color, where=bot_id)
+        if "color" in identity:
+            validate_color(identity["color"], where=bot_id)
     if body.get("reset"):
         team.clear_bot_override(bot_id)
     elif "model" in body or "effort" in body:
         team.update_bot(
             bot_id, model=optional_str(body, "model"), effort=optional_str(body, "effort")
         )
-    if color is not None:
-        manager.recolor_bot(bot_id, color)
+    if identity:
+        manager.edit_bot(bot_id, **identity)
     return web.json_response(team.agent(bot_id).to_dict())
 
 

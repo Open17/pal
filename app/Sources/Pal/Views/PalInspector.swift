@@ -24,14 +24,16 @@ struct PalInspector: View {
             Section("Model") {
                 LabeledContent("Model", value: Models.name(pal.model))
                 LabeledContent("Effort", value: Models.effortName(pal.effort))
-                Button("Change…") { store.sheet = .botSettings(pal) }
             }
 
-            Section("Persona") {
+            Section("Instructions") {
                 Text(pal.persona?.isEmpty == false ? pal.persona! : "None")
                     .foregroundStyle(pal.persona?.isEmpty == false ? .primary : .secondary)
                     .textSelection(.enabled)
-                    .lineLimit(12)
+            }
+
+            Section {
+                Button("Edit \(pal.name)…") { store.sheet = .botSettings(pal) }
             }
 
             Section("Computer") {

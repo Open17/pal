@@ -1,35 +1,48 @@
 import SwiftUI
 
-/// One bot's color, model and effort.
+/// One bot's name, role, instructions, color, model and effort.
 struct BotSettingsSheet: View {
     @Environment(PalStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let pal: Pal
+    @State private var name: String
+    @State private var role: String
+    @State private var persona: String
     @State private var model: String
     @State private var effort: String
     @State private var color: String
+    @State private var saving = false
+    @State private var error: String?
 
     init(pal: Pal) {
         self.pal = pal
+        _name = State(initialValue: pal.name)
+        _role = State(initialValue: pal.role)
+        _persona = State(initialValue: pal.persona ?? "")
         _model = State(initialValue: pal.model)
         _effort = State(initialValue: pal.effort)
         _color = State(initialValue: BotTint.hex(of: pal))
     }
 
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+
     var body: some View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    HStack(spacing: 12) {
-                        AvatarView(botColor: color, seed: pal.id, size: 44)
-                        VStack(alignment: .leading) {
-                            Text(pal.name).font(.headline)
-                            Text(pal.role).foregroundStyle(.secondary)
+                    HStack(spacing: 14) {
+                        AvatarView(botColor: color, seed: pal.id, size: 52)
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField("Name", text: $name, prompt: Text("Required"))
+                            TextField("Role", text: $role, prompt: Text("Optional, e.g. Researcher"))
                         }
                     }
                     LabeledContent("Color") {
                         BotColorPicker(hex: $color)
                     }
+                }
+                Section("Instructions") {
+                    InstructionsEditor(text: $persona)
                 }
                 Section {
                     Picker("Model", selection: $model) {
@@ -43,27 +56,74 @@ struct BotSettingsSheet: View {
                     Text("Higher effort thinks longer and uses more of your plan. Changes apply from \(pal.name)’s next message; the conversation carries over.")
                         .foregroundStyle(.secondary)
                 }
+                if let error {
+                    Text(error).foregroundStyle(Color.statusRed)
+                }
             }
             .formStyle(.grouped)
             HStack {
                 Button("Use Team Defaults") {
-                    store.resetBotSettings(pal.id)
-                    dismiss()
+                    // Model and effort go back to the team's; edits to the rest are kept.
+                    save(resetModel: true)
                 }
-                .help("Model and effort go back to the team’s; the color stays.")
+                .help("Model and effort go back to the team’s. Your other changes are saved.")
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    let recolored = color.caseInsensitiveCompare(BotTint.hex(of: pal)) != .orderedSame
-                    store.updateBot(pal.id, model: model, effort: effort, color: recolored ? color : nil)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
+                Button("Save") { save(resetModel: false) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmedName.isEmpty || saving)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 460)
+        .frame(width: 480)
+    }
+
+    private func save(resetModel: Bool) {
+        let trimmedRole = role.trimmingCharacters(in: .whitespaces)
+        let trimmedPersona = persona.trimmingCharacters(in: .whitespacesAndNewlines)
+        var edit = BotEdit()
+        if !trimmedName.isEmpty, trimmedName != pal.name { edit.name = trimmedName }
+        if trimmedRole != pal.role { edit.role = trimmedRole }
+        if trimmedPersona != (pal.persona ?? "") { edit.persona = trimmedPersona }
+        if color.caseInsensitiveCompare(BotTint.hex(of: pal)) != .orderedSame { edit.color = color }
+        if !resetModel {
+            if model != pal.model { edit.model = model }
+            if effort != pal.effort { edit.effort = effort }
+        }
+        saving = true
+        error = nil
+        Task {
+            do {
+                if edit != BotEdit() { try await store.editBot(pal.id, edit) }
+                if resetModel { store.resetBotSettings(pal.id) }
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+                saving = false
+            }
+        }
+    }
+}
+
+/// A bot's instructions, with a hint while empty.
+struct InstructionsEditor: View {
+    @Binding var text: String
+
+    var body: some View {
+        TextEditor(text: $text)
+            .font(.body)
+            .frame(minHeight: 110)
+            .scrollContentBackground(.hidden)
+            .overlay(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text("Optional: what this bot is for, and how it should work.")
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 1)
+                        .padding(.leading, 5)
+                        .allowsHitTesting(false)
+                }
+            }
     }
 }
 
@@ -239,19 +299,7 @@ struct NewBotSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Section("Instructions") {
-                    TextEditor(text: $persona)
-                        .font(.body)
-                        .frame(minHeight: 110)
-                        .scrollContentBackground(.hidden)
-                        .overlay(alignment: .topLeading) {
-                            if persona.isEmpty {
-                                Text("Optional: what this bot is for, and how it should work.")
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.top, 1)
-                                    .padding(.leading, 5)
-                                    .allowsHitTesting(false)
-                            }
-                        }
+                    InstructionsEditor(text: $persona)
                 }
                 if let error {
                     Text(error).foregroundStyle(Color.statusRed)

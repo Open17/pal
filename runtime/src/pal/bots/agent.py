@@ -115,6 +115,8 @@ class BotAgent:
         self._worker: asyncio.Task[None] | None = None
         self._client: AgentClient | None = None
         self._client_settings: ModelSettings | None = None
+        #: Set when the system prompt changed; the next turn reconnects to pick it up.
+        self._prompt_stale = False
         self._current: WorkItem | None = None
         #: Things that happened in the chat since the bot's last turn, such as
         #: a reaction to one of its messages. It reads them with its next message.
@@ -196,12 +198,18 @@ class BotAgent:
         await self._disconnect()
         self._state.set_session_id(self.id, None)
 
+    def refresh_prompt(self) -> None:
+        """Rebuild the system prompt before the next turn; the conversation carries over."""
+
+        self._prompt_stale = True
+
     def to_dict(self) -> dict[str, Any]:
         settings = self.model_settings
         return {
             "id": self.id,
             "name": self.definition.name,
             "role": self.definition.role,
+            "persona": self.definition.persona,
             "color": self.definition.color,
             "status": self.status,
             "queued": self.queued,
@@ -394,12 +402,16 @@ class BotAgent:
 
     async def _ensure_client(self) -> AgentClient:
         settings = self.model_settings
+        if self._client is not None and self._prompt_stale:
+            log.info("%s: reconnecting with an updated prompt", self.id)
+            await self._disconnect()
         if self._client is not None and settings != self._client_settings:
             # Model and effort are fixed per session; reconnect and resume so
             # the conversation carries over with the new settings.
             log.info("%s: switching to %s (%s effort)", self.id, settings.model, settings.effort)
             await self._disconnect()
         if self._client is None:
+            self._prompt_stale = False
             self._client = await self._connect(settings)
             self._client_settings = settings
         return self._client

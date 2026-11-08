@@ -227,3 +227,59 @@ async def test_bot_color_changes_while_running(tmp_path: Path) -> None:
                 assert response.status == 404
     finally:
         await runtime.stop()
+
+
+async def test_bots_are_edited_while_running(tmp_path: Path) -> None:
+    config = runtime_config(tmp_path)
+    runtime = PalRuntime(
+        config,
+        client_factory=lambda options: FakeClient(options, echo),
+        display_backend=InMemoryDisplayBackend(),
+        greeter=hello,
+    )
+    await runtime.start()
+    try:
+        token = (tmp_path / "cfg" / "secrets" / "api-token").read_text().strip()
+        base = f"http://127.0.0.1:{config.api.port}"
+        async with aiohttp.ClientSession(base, headers={"Authorization": f"Bearer {token}"}) as s:
+            with runtime.bus.subscribe() as events:
+                async with s.post("/v1/bots/atlas/messages", json={"content": "hi"}) as response:
+                    assert response.status == 202
+                await next_event(events, "bot.turn.completed")
+            sessions = len(FakeClient.instances)
+
+            body = {"name": "Atlas Prime", "role": "Navigator", "persona": "Plot the course."}
+            with runtime.bus.subscribe() as events:
+                async with s.patch("/v1/bots/atlas", json=body) as response:
+                    assert response.status == 200
+                    edited = await response.json()
+                event = await next_event(events, "bot.updated")
+            assert (edited["id"], edited["name"], edited["role"], edited["persona"]) == (
+                "atlas",
+                "Atlas Prime",
+                "Navigator",
+                "Plot the course.",
+            )
+            assert event.data["name"] == "Atlas Prime"
+            saved = (tmp_path / "cfg" / "bots" / "atlas.toml").read_text()
+            assert 'name = "Atlas Prime"' in saved and 'persona = "Plot the course."' in saved
+
+            # The next turn reconnects with the new prompt, resuming the conversation.
+            with runtime.bus.subscribe() as events:
+                async with s.post("/v1/bots/atlas/messages", json={"content": "again"}) as r:
+                    assert r.status == 202
+                await next_event(events, "bot.turn.completed")
+            assert len(FakeClient.instances) == sessions + 1
+            prompt = FakeClient.instances[-1].options.system_prompt["append"]
+            assert "You are Atlas Prime, the team's navigator" in prompt
+            assert "Plot the course." in prompt
+
+            # Blank role and instructions clear them; a blank name is refused.
+            async with s.patch("/v1/bots/atlas", json={"role": "", "persona": ""}) as response:
+                assert (await response.json())["role"] == ""
+            async with s.patch("/v1/bots/atlas", json={"name": " "}) as response:
+                assert response.status == 400
+            async with s.patch("/v1/bots/atlas", json={"role": 3}) as response:
+                assert response.status == 400
+    finally:
+        await runtime.stop()

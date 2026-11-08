@@ -334,8 +334,8 @@ final class PalStore {
                 pals[i].model = model
                 pals[i].effort = effort
             }
-        case let .botUpdated(bot, color):
-            if let i = pals.firstIndex(where: { $0.id == bot }) { pals[i].color = color }
+        case .botUpdated(let updated):
+            apply(updated)
         case .botAdded, .botRemoved:
             await refreshStatus()
         case .display(let display):
@@ -511,11 +511,13 @@ final class PalStore {
     // MARK: - Model settings
 
     func updateBot(_ id: String, model: String? = nil, effort: String? = nil, color: String? = nil) {
-        struct Body: Encodable { let model, effort, color: String? }
-        perform {
-            let updated: Pal = try await self.client.patch("/v1/bots/\(id)", Body(model: model, effort: effort, color: color))
-            self.apply(updated)
-        }
+        perform { try await self.editBot(id, BotEdit(model: model, effort: effort, color: color)) }
+    }
+
+    /// Changes any of a bot's settings; fields left nil stay as they are.
+    func editBot(_ id: String, _ edit: BotEdit) async throws {
+        let updated: Pal = try await client.patch("/v1/bots/\(id)", edit)
+        apply(updated)
     }
 
     func resetBotSettings(_ id: String) {
@@ -532,8 +534,12 @@ final class PalStore {
         }
     }
 
+    /// Takes a bot's settings from the runtime, keeping what only events tell us.
     private func apply(_ updated: Pal) {
         guard let i = pals.firstIndex(where: { $0.id == updated.id }) else { return }
+        pals[i].name = updated.name
+        pals[i].role = updated.role
+        pals[i].persona = updated.persona
         pals[i].model = updated.model
         pals[i].effort = updated.effort
         pals[i].color = updated.color
