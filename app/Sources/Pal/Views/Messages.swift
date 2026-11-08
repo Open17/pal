@@ -139,20 +139,20 @@ struct MessageRowView: View {
                 }
                 content
                     .overlay(alignment: outgoing ? .bottomLeading : .bottomTrailing) {
-                        if !reactions.isEmpty {
-                            ReactionChips(reactions: reactions, names: store.name(of:)) { emoji in
-                                store.react(emoji, to: message, in: pal.id)
-                            }
-                            // Hangs off the bubble's lower corner.
-                            .alignmentGuide(.bottom) { $0[.bottom] - 12 }
-                            .alignmentGuide(outgoing ? .leading : .trailing) { d in
-                                outgoing ? d[.leading] + 4 : d[.trailing] - 4
-                            }
+                        // Hangs off the bubble's lower corner. (Empty without
+                        // reactions; not wrapped in an `if`, which would drop the guides.)
+                        ReactionChips(reactions: reactions, names: store.name(of:)) { emoji in
+                            store.react(emoji, to: message, in: pal.id)
+                        }
+                        .alignmentGuide(.bottom) { $0[.bottom] - 12 }
+                        .alignmentGuide(outgoing ? .leading : .trailing) { d in
+                            outgoing ? d[.leading] + 4 : d[.trailing] - 4
                         }
                     }
-                    // Beside the bubble, in the empty space next to it, so it
-                    // never narrows the message.
-                    .overlay(alignment: outgoing ? .topLeading : .topTrailing) {
+                    // Beside the bubble's last line, in the empty space next to
+                    // it, so it never narrows the message and stays in view
+                    // under a long one.
+                    .overlay(alignment: outgoing ? .bottomLeading : .bottomTrailing) {
                         MessageActions(
                             reacted: store.myReaction(to: message.id),
                             picking: $picking,
