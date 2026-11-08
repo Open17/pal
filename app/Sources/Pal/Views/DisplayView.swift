@@ -16,6 +16,7 @@ struct DisplayView: View {
     @State private var controlling = false
     @State private var connection: RemoteDisplay?
     @State private var attempt = 0
+    @State private var showsControlHint = false
 
     private var display: Display? { store.display(for: owner) }
 
@@ -25,10 +26,23 @@ struct DisplayView: View {
             ZStack {
                 Color.black
                 if let frame {
-                    DisplayCanvas(image: frame, controlling: controlling, connection: connection)
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                    DisplayCanvas(image: frame, controlling: controlling, connection: connection) {
+                        controlling = false
+                    }
+                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                 }
                 overlay
+                if showsControlHint {
+                    Text("You’re in control. Press ⌃⌥ (Control-Option) to give it back.")
+                        .font(.callout)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .glassEffect()
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 12)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
             }
             // Match the display's shape so there are no black bars around it.
             .aspectRatio(frame.map { CGFloat($0.width) / CGFloat(max($0.height, 1)) } ?? 16 / 10, contentMode: .fit)
@@ -36,14 +50,23 @@ struct DisplayView: View {
             .padding(showsHeader ? 10 : 0)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .task(id: "\(owner)-\(attempt)") { await connect() }
+        // Connects again once a display that wasn't there yet appears.
+        .task(id: "\(owner)-\(attempt)-\(display != nil)") { await connect() }
         .onDisappear { connection?.stop() }
+        .onChange(of: controlling) { _, now in
+            withAnimation { showsControlHint = now }
+            guard now else { return }
+            Task {
+                try? await Task.sleep(for: .seconds(4))
+                withAnimation(.easeOut(duration: 0.6)) { showsControlHint = false }
+            }
+        }
     }
 
     private var header: some View {
         HStack(spacing: 8) {
             Circle().fill(stateColor).frame(width: 7, height: 7)
-            Text(display.map { "\(store.displayTitle(owner)) · \($0.display)" } ?? store.displayTitle(owner))
+            Text(store.displayTitle(owner))
                 .font(.system(size: 12, weight: .semibold))
             Text(stateText)
                 .font(.system(size: 11))
@@ -54,7 +77,7 @@ struct DisplayView: View {
             }
             .toggleStyle(.button)
             .controlSize(.small)
-            .help(controlling ? "Your mouse and keyboard go to this display" : "Watch only")
+            .help(controlling ? "Your mouse and keyboard go to this computer. Press ⌃⌥ to give it back." : "Watch only")
             Menu {
                 Button("Open in Window") { openWindow(id: "display", value: owner) }
                 Button("Reconnect") { attempt += 1 }
@@ -121,11 +144,11 @@ struct DisplayView: View {
         connection?.stop()
         frame = nil
         guard let display else {
-            state = .failed("This display isn't available yet.")
+            state = .failed("This computer isn’t ready yet. It shows up here as soon as it is.")
             return
         }
         guard let password = Secrets.vncPassword else {
-            state = .failed("No VNC password found in the VM's secrets folder.")
+            state = .failed("Pal couldn’t unlock this computer’s screen. Turning Pal’s computer off and on again usually fixes it.")
             return
         }
         let remote = RemoteDisplay(port: store.vncPort(for: display), password: password)
@@ -141,6 +164,8 @@ private struct DisplayCanvas: NSViewRepresentable {
     let image: CGImage
     let controlling: Bool
     let connection: RemoteDisplay?
+    /// Gives control back (⌃⌥).
+    let release: () -> Void
 
     func makeNSView(context: Context) -> CanvasView {
         CanvasView()
@@ -148,6 +173,7 @@ private struct DisplayCanvas: NSViewRepresentable {
 
     func updateNSView(_ view: CanvasView, context: Context) {
         view.connection = connection
+        view.onRelease = release
         view.controlling = controlling
         view.show(image)
     }
@@ -155,12 +181,19 @@ private struct DisplayCanvas: NSViewRepresentable {
 
 private final class CanvasView: NSView {
     var connection: RemoteDisplay?
+    var onRelease: (() -> Void)?
     var controlling = false {
         didSet {
             if controlling, oldValue != controlling { window?.makeFirstResponder(self) }
+            if !controlling, oldValue, window?.firstResponder === self {
+                releaseModifiers()
+                window?.makeFirstResponder(nil)
+            }
             window?.invalidateCursorRects(for: self)
         }
     }
+    /// Trackpad scrolling not yet sent as a wheel notch.
+    private var scrollRemainder = CGSize.zero
     private var imageSize = CGSize.zero
     private var buttons: UInt8 = 0
     private var modifiers: NSEvent.ModifierFlags = []
@@ -223,9 +256,29 @@ private final class CanvasView: NSView {
         sendPointer(event)
     }
 
+    /// A mouse wheel sends one notch per click. A trackpad reports points, many
+    /// per swipe, so those add up to a notch every few lines' worth.
     override func scrollWheel(with event: NSEvent) {
-        guard controlling, let connection, let (x, y) = location(event), event.scrollingDeltaY != 0 else { return }
-        connection.scroll(x: x, y: y, up: event.scrollingDeltaY > 0)
+        guard controlling, let connection, let (x, y) = location(event) else { return }
+        guard event.hasPreciseScrollingDeltas else {
+            if event.scrollingDeltaY != 0 { connection.scroll(x: x, y: y, event.scrollingDeltaY > 0 ? .up : .down) }
+            if event.scrollingDeltaX != 0 { connection.scroll(x: x, y: y, event.scrollingDeltaX > 0 ? .left : .right) }
+            return
+        }
+        if event.phase == .began { scrollRemainder = .zero }
+        let notch: CGFloat = 24
+        scrollRemainder.height += event.scrollingDeltaY
+        scrollRemainder.width += event.scrollingDeltaX
+        while abs(scrollRemainder.height) >= notch {
+            let up = scrollRemainder.height > 0
+            connection.scroll(x: x, y: y, up ? .up : .down)
+            scrollRemainder.height -= up ? notch : -notch
+        }
+        while abs(scrollRemainder.width) >= notch {
+            let left = scrollRemainder.width > 0
+            connection.scroll(x: x, y: y, left ? .left : .right)
+            scrollRemainder.width -= left ? notch : -notch
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -241,11 +294,26 @@ private final class CanvasView: NSView {
     override func flagsChanged(with event: NSEvent) {
         guard controlling else { return }
         let flags = event.modifierFlags.intersection([.shift, .control, .option, .command])
+        if flags == [.control, .option] {
+            // ⌃⌥ together gives control back, and lets go of the keys in the VM.
+            releaseModifiers()
+            onRelease?()
+            return
+        }
         for (flag, keysym) in [(NSEvent.ModifierFlags.shift, KeySym.shift), (.control, KeySym.control), (.option, KeySym.option), (.command, KeySym.command)]
         where flags.contains(flag) != modifiers.contains(flag) {
             connection?.key(keysym, down: flags.contains(flag))
         }
         modifiers = flags
+    }
+
+    /// Lets go of any modifier the VM still thinks is held.
+    private func releaseModifiers() {
+        for (flag, keysym) in [(NSEvent.ModifierFlags.shift, KeySym.shift), (.control, KeySym.control), (.option, KeySym.option), (.command, KeySym.command)]
+        where modifiers.contains(flag) {
+            connection?.key(keysym, down: false)
+        }
+        modifiers = []
     }
 
     /// Let ⌘-shortcuts reach the VM while in control, instead of the app's menus.

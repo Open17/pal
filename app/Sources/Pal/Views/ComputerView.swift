@@ -46,6 +46,11 @@ private struct DisplayCard: View {
     let display: Display
     let open: () -> Void
 
+    private var subtitle: String {
+        guard let pal = store.pal(display.owner) else { return "Your own desktop" }
+        return pal.role.isEmpty ? "Bot" : pal.role
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -57,7 +62,7 @@ private struct DisplayCard: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(store.displayTitle(display.owner))
                         .font(.system(size: 13, weight: .semibold))
-                    Text("\(display.display) · port \(store.vncPort(for: display))")
+                    Text(subtitle)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
