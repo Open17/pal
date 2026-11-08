@@ -45,6 +45,17 @@ def validate_effort(value: str, *, where: str) -> Effort:
     return value  # type: ignore[return-value]
 
 
+COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def validate_color(value: str, *, where: str) -> str:
+    """A bot color is ``#RRGGBB``; returned in upper case."""
+
+    if not COLOR_PATTERN.match(value):
+        raise ConfigError(f"{where}: color must look like #5B8DEF (got {value!r})")
+    return value.upper()
+
+
 def validate_bot_id(value: str, *, where: str) -> str:
     if not BOT_ID_PATTERN.match(value):
         raise ConfigError(

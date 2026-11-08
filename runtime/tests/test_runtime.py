@@ -140,3 +140,51 @@ async def test_bots_are_added_and_removed_while_running(tmp_path: Path) -> None:
                 assert response.status == 400
     finally:
         await runtime.stop()
+
+
+async def test_bot_color_changes_while_running(tmp_path: Path) -> None:
+    config = runtime_config(tmp_path)
+    runtime = PalRuntime(
+        config,
+        client_factory=lambda options: FakeClient(options, echo),
+        display_backend=InMemoryDisplayBackend(),
+    )
+    await runtime.start()
+    try:
+        token = (tmp_path / "cfg" / "secrets" / "api-token").read_text().strip()
+        base = f"http://127.0.0.1:{config.api.port}"
+        async with aiohttp.ClientSession(base, headers={"Authorization": f"Bearer {token}"}) as s:
+            body = {"name": "Painter", "color": "#3dbe7a"}
+            async with s.post("/v1/bots", json=body) as response:
+                assert (await response.json())["color"] == "#3DBE7A"
+
+            with runtime.bus.subscribe() as events:
+                async with s.patch("/v1/bots/painter", json={"color": "#ec5b9a"}) as response:
+                    assert response.status == 200
+                    assert (await response.json())["color"] == "#EC5B9A"
+                event = await events.get()
+            assert (event.type, event.data["color"]) == ("bot.updated", "#EC5B9A")
+            saved = (tmp_path / "cfg" / "bots" / "painter.toml").read_text()
+            assert 'color = "#EC5B9A"' in saved
+            assert 'name = "Painter"' in saved
+            assert runtime.config.bot("painter").color == "#EC5B9A"
+
+            # Color alone leaves the model alone, and a reset leaves the color alone.
+            async with s.patch("/v1/bots/painter", json={"effort": "low"}) as response:
+                assert (await response.json())["color"] == "#EC5B9A"
+            async with s.patch("/v1/bots/painter", json={"reset": True}) as response:
+                assert (await response.json())["color"] == "#EC5B9A"
+
+            # A bad color changes nothing, including settings sent with it.
+            bad = {"color": "pink", "effort": "max"}
+            async with s.patch("/v1/bots/painter", json=bad) as response:
+                assert response.status == 400
+            async with s.get("/v1/bots/painter") as response:
+                body = await response.json()
+            assert (body["color"], body["effort"]) == ("#EC5B9A", "high")
+            async with s.post("/v1/bots", json={"name": "Smudge", "color": "red"}) as response:
+                assert response.status == 400
+            async with s.patch("/v1/bots/ghost", json={"color": "#000000"}) as response:
+                assert response.status == 404
+    finally:
+        await runtime.stop()
