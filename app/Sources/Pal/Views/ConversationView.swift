@@ -313,12 +313,18 @@ private struct MessageList: View {
                     // How far the view is above its furthest scroll position.
                     ScrollSpot(
                         contentHeight: geometry.contentSize.height,
+                        bottomInset: geometry.contentInsets.bottom,
+                        visibleHeight: geometry.visibleRect.height,
                         offset: geometry.contentOffset.y,
                         fromBottom: geometry.contentSize.height + geometry.contentInsets.bottom
                             - geometry.visibleRect.height - geometry.contentOffset.y
                     )
                 } action: { old, new in
-                    if new.contentHeight != old.contentHeight {
+                    if new.bottomInset != old.bottomInset || new.visibleHeight != old.visibleHeight {
+                        // The composer or window grew or shrank (a reply banner, a longer
+                        // draft): stay at the newest message once the new size is in place.
+                        if following { scrollToBottom(proxy, animated: false) }
+                    } else if new.contentHeight != old.contentHeight {
                         if following { proxy.scrollTo(Self.bottom, anchor: .bottom) }
                     } else if settled && scrollPhase != .animating {
                         following = new.fromBottom < 40
@@ -376,6 +382,8 @@ private struct MessageList: View {
 
     private struct ScrollSpot: Equatable {
         let contentHeight: CGFloat
+        let bottomInset: CGFloat
+        let visibleHeight: CGFloat
         let offset: CGFloat
         let fromBottom: CGFloat
     }
