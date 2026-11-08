@@ -15,10 +15,14 @@ from pal.displays import DisplayBackendError, DisplayManager
 
 from ..base import ToolContext, ToolProvider, ToolResult, error_result, text_result
 from . import ocr
-from .desktop import Desktop, DesktopError
+from .desktop import Desktop, DesktopError, Window
 
 #: Screenshots are scaled to fit this box; coordinates map back to the screen.
 MAX_SCREENSHOT = (1280, 800)
+#: How long open_app waits for the program's window, and for the windows to
+#: stop changing (splash screens, stand-in windows) before it reports back.
+OPEN_WAIT = 15.0
+OPEN_SETTLE = 0.75
 #: Screens narrower than this are enlarged before text recognition.
 OCR_ENLARGE_BELOW = 2000
 #: Tesseract page segmentation modes: sparse text, automatic, single column.
@@ -298,9 +302,17 @@ class ComputerTools(ToolProvider):
         )
         async def open_app(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                argv = await provider.desktop(bot_id).open(args["command"])
-                await asyncio.sleep(1.5)  # give the window a moment to appear
-                return text_result(f"Started {argv[0]}. Take a screenshot to see it.")
+                desktop = provider.desktop(bot_id)
+                before = {w.id for w in await desktop.windows()}
+                argv = await desktop.open(args["command"])
+                window = await _new_window(desktop, before)
+                if window is None:
+                    return text_result(
+                        f"Started {argv[0]}, but no new window appeared within "
+                        f"{OPEN_WAIT:g}s. It may still be loading, or it reused a window "
+                        "that was already open. Take a screenshot to check."
+                    )
+                return text_result(f"Started {argv[0]}: its window “{window.title}” is open.")
 
             return await guarded(run)
 
@@ -382,6 +394,32 @@ class ComputerTools(ToolProvider):
             )
             for line in lines
         ]
+
+
+async def _new_window(desktop: Desktop, before: set[str]) -> Window | None:
+    """The program's new window, once the windows have settled.
+
+    Some programs show a splash or stand-in window first, so this waits until
+    no window has come or gone for OPEN_SETTLE seconds (up to OPEN_WAIT) and
+    returns the newest window that was not in ``before``.
+    """
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + OPEN_WAIT
+    seen: list[str] | None = None
+    steady_since = loop.time()
+    while True:
+        windows = await desktop.windows()
+        fresh = [w for w in windows if w.id not in before]
+        now = loop.time()
+        ids = [w.id for w in windows]
+        if ids != seen:
+            seen, steady_since = ids, now
+        if fresh and now - steady_since >= OPEN_SETTLE:
+            return fresh[-1]
+        if now >= deadline:
+            return fresh[-1] if fresh else None
+        await asyncio.sleep(0.25)
 
 
 def _prepare_for_ocr(path: Path) -> tuple[Path, int]:

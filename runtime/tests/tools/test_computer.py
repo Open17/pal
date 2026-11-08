@@ -8,6 +8,7 @@ from PIL import Image
 from pal.config import DisplaySettings
 from pal.displays import DisplayManager, InMemoryDisplayBackend
 from pal.tools.computer import ComputerTools, DesktopError, normalize_keys, ocr, parse_windows
+from pal.tools.computer import provider as provider_module
 from pal.tools.computer.desktop import Desktop
 from tests.tools.helpers import handlers, text
 
@@ -98,6 +99,7 @@ def test_readings_are_merged_keeping_the_surer_word() -> None:
 
 class FakeDesktop(Desktop):
     calls: list[tuple] = []
+    opened: list[str] = []
     screen = (2560, 1600)
 
     async def run(self, *args, stdin=None, time_limit=20):
@@ -106,8 +108,15 @@ class FakeDesktop(Desktop):
             Image.new("RGB", FakeDesktop.screen, "white").save(args[-1])
         if args[0] == "tesseract":
             return TSV
+        if args[0] == "pal-open":
+            FakeDesktop.opened.append(
+                "0x01600001  0 2 50 50 600 400  mousepad.Mousepad pal Untitled 1 - Mousepad\n"
+            )
         if args[0] == "wmctrl" and args[1] == "-lpGx":
-            return "0x01400003  0 1 100 100 400 300  mousepad.Mousepad pal notes.txt - Mousepad\n"
+            listing = (
+                "0x01400003  0 1 100 100 400 300  mousepad.Mousepad pal notes.txt - Mousepad\n"
+            )
+            return listing + "".join(FakeDesktop.opened)
         return ""
 
 
@@ -115,6 +124,8 @@ class FakeDesktop(Desktop):
 def computer(tmp_path: Path, monkeypatch) -> ComputerTools:
     FakeDesktop.calls = []
     FakeDesktop.screen = (2560, 1600)
+    FakeDesktop.opened = []
+    monkeypatch.setattr(provider_module, "OPEN_SETTLE", 0)
     displays = DisplayManager(
         DisplaySettings(backend="simulated"), InMemoryDisplayBackend(), tmp_path / "d.json"
     )
@@ -162,7 +173,7 @@ async def test_windows_and_keys(computer: ComputerTools) -> None:
 
 async def test_open_app_uses_pal_open(computer: ComputerTools) -> None:
     result = await handlers(computer)["open_app"]({"command": "mousepad 'my notes.txt'"})
-    assert "Started mousepad" in text(result)
+    assert text(result) == "Started mousepad: its window “Untitled 1 - Mousepad” is open."
     assert ("pal-open", "mousepad", "my notes.txt") in FakeDesktop.calls
 
 
@@ -187,6 +198,22 @@ async def test_small_screens_are_enlarged_for_text_recognition(computer: Compute
     assert found == "Found “cancel” at:\n(215, 153) in “Cancel”"
     ocr_call = next(call for call in FakeDesktop.calls if call[0] == "tesseract")
     assert ocr_call[1].endswith("screen-atlas-ocr.png")
+
+
+async def test_open_app_says_when_no_window_appears(computer: ComputerTools, monkeypatch) -> None:
+    monkeypatch.setattr(provider_module, "OPEN_WAIT", 0)
+    # A program that reuses an existing window adds nothing to the window list.
+    original = FakeDesktop.run
+
+    async def no_new_window(self, *args, **kwargs):
+        if args[0] == "pal-open":
+            FakeDesktop.calls.append(args)
+            return ""
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(FakeDesktop, "run", no_new_window)
+    result = await handlers(computer)["open_app"]({"command": "mousepad"})
+    assert "no new window appeared" in text(result)
 
 
 async def test_drag_moves_in_steps_with_the_button_held(computer: ComputerTools) -> None:
