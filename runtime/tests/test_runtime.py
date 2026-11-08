@@ -283,3 +283,52 @@ async def test_bots_are_edited_while_running(tmp_path: Path) -> None:
                 assert response.status == 400
     finally:
         await runtime.stop()
+
+
+async def test_a_removed_bot_leaves_nothing_behind(tmp_path: Path) -> None:
+    backend = InMemoryDisplayBackend()
+    runtime = PalRuntime(
+        runtime_config(tmp_path),
+        client_factory=lambda options: FakeClient(options, echo),
+        display_backend=backend,
+        greeter=hello,
+    )
+    await runtime.start()
+    try:
+        agent = await runtime.add_bot("Echo")
+        with runtime.bus.subscribe() as events:
+            await runtime.team.send_from_user("echo", "remember me")
+            await next_event(events, "bot.turn.completed")
+        await runtime.team.send("atlas", "echo", "fyi", wait_for_reply=False)
+        await runtime.memory.remember(
+            author="echo", owner="echo", scope="private", title="Secret", body="mine"
+        )
+        await runtime.memory.remember(
+            author="echo", owner=None, scope="shared", title="Team note", body="ours"
+        )
+        runtime.team.update_bot("echo", effort="low")
+        profile = tmp_path / "data" / "browsers" / "echo"
+        (profile / "Default").mkdir(parents=True)
+        assert agent.id == "echo"
+
+        await runtime.remove_bot("echo")
+        conversations = tmp_path / "data" / "conversations"
+        assert not (conversations / "user--echo.jsonl").exists()
+        assert not (conversations / "atlas--echo.jsonl").exists()
+        assert (conversations / "user--atlas.jsonl").exists()  # others' chats stay
+        assert await runtime.memory.list("private", "echo") == []
+        assert [e.title for e in await runtime.memory.list("shared", None)] == ["Team note"]
+        assert not profile.exists()
+        assert ("forget", "echo") in backend.calls
+
+        # The same name gives the same id, and it starts fresh.
+        with runtime.bus.subscribe() as events:
+            again = await runtime.add_bot("Echo")
+            await next_event(events, "message.created")
+        assert again.id == "echo"
+        assert runtime.state.session_id("echo") is None
+        assert runtime.team.model_settings("echo").effort == "high"
+        messages = await runtime.messenger.log.read("user--echo")
+        assert [m.content for m in messages] == ["Hello from Echo"]
+    finally:
+        await runtime.stop()

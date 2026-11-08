@@ -72,6 +72,13 @@ class BotStateStore:
 
     # -- persistence -----------------------------------------------------
 
+    def forget(self, bot_id: str) -> None:
+        """Drop everything kept for a removed bot: its session and model choice."""
+
+        with self._lock:
+            if self._data.get("bots", {}).pop(bot_id, None) is not None:
+                self._save()
+
     def _bot(self, bot_id: str) -> dict[str, Any]:
         return self._data.setdefault("bots", {}).get(bot_id, {})
 

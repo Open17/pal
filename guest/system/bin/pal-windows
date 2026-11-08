@@ -3,13 +3,15 @@
 
     DISPLAY=:10 PAL_DISPLAY_OWNER=atlas pal-windows save
     DISPLAY=:10 PAL_DISPLAY_OWNER=atlas pal-windows restore
+    PAL_DISPLAY_OWNER=atlas pal-windows forget
 
 A display that sleeps keeps its windows (it is frozen, not closed), but one
 that is stopped, or a computer that restarts, loses them. ``save`` records
 every program with a window open (how to start it again, from which folder)
 and where each window sits; the runtime saves every minute and before a
 display stops. ``restore`` runs when a display starts: it starts the programs
-again and puts their windows back. Browsers reopen their own tabs.
+again and puts their windows back. Browsers reopen their own tabs. ``forget``
+drops what was saved, for a bot that was removed.
 """
 
 from __future__ import annotations
@@ -267,11 +269,14 @@ def move(window_id: str, saved: dict) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) != 2 or sys.argv[1] not in ("save", "restore"):
-        print("usage: pal-windows save|restore", file=sys.stderr)
+    if len(sys.argv) != 2 or sys.argv[1] not in ("save", "restore", "forget"):
+        print("usage: pal-windows save|restore|forget", file=sys.stderr)
         return 2
     owner = os.environ.get("PAL_DISPLAY_OWNER") or os.environ.get("DISPLAY", ":0").lstrip(":")
     path = STATE_DIR / f"{owner}.json"
+    if sys.argv[1] == "forget":
+        path.unlink(missing_ok=True)
+        return 0
     return save(path) if sys.argv[1] == "save" else restore(path)
 
 

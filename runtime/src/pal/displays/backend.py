@@ -32,6 +32,10 @@ class DisplayBackend(Protocol):
         """Remember the display's open windows, to reopen when it next starts."""
         ...
 
+    async def forget_windows(self, display: Display) -> None:
+        """Drop the windows saved for a display whose bot was removed."""
+        ...
+
 
 class SystemdDisplayBackend:
     """Runs each display as the user unit ``pal-display@<owner>.service``.
@@ -104,6 +108,19 @@ class SystemdDisplayBackend:
             return "failed"
         return "stopped"
 
+    async def forget_windows(self, display: Display) -> None:
+        process = await asyncio.create_subprocess_exec(
+            "pal-windows",
+            "forget",
+            env={**os.environ, "PAL_DISPLAY_OWNER": display.owner},
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+        if process.returncode != 0:
+            reason = stderr.decode(errors="replace")[-300:]
+            log.warning("could not forget the windows of %s: %s", display.owner, reason)
+
     async def save_windows(self, display: Display) -> None:
         environment = {
             **os.environ,
@@ -171,6 +188,9 @@ class InMemoryDisplayBackend:
 
     async def save_windows(self, display: Display) -> None:
         self.calls.append(("save", display.owner))
+
+    async def forget_windows(self, display: Display) -> None:
+        self.calls.append(("forget", display.owner))
 
     def _record(self, action: str, display: Display, state: DisplayState) -> None:
         self.calls.append((action, display.owner))

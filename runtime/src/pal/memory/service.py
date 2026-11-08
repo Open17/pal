@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,12 @@ class MemoryService:
                 self.root / "bots" / bot_id, title=f"Knowledge of {bot_id}"
             )
         return self._knowledge[bot_id]
+
+    async def forget_bot(self, bot_id: str) -> None:
+        """Delete a removed bot's private knowledge. Shared memory stays."""
+
+        self._knowledge.pop(bot_id, None)
+        await asyncio.to_thread(shutil.rmtree, self.root / "bots" / bot_id, ignore_errors=True)
 
     def store(self, scope: Scope, owner: str | None) -> MemoryStore:
         if scope == "shared":
