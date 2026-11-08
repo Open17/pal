@@ -6,8 +6,7 @@ apt_install \
     tigervnc-standalone-server tigervnc-tools \
     dbus-x11 at-spi2-core \
     x11-xserver-utils x11-utils xdotool wmctrl \
-    fonts-dejavu fonts-noto-core fonts-noto-color-emoji adwaita-icon-theme \
-    firefox-esr
+    fonts-dejavu fonts-noto-core fonts-noto-color-emoji adwaita-icon-theme
 
 # Never start a graphical login on the VM's own (nonexistent) console.
 systemctl set-default multi-user.target

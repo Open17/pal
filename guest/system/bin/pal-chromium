@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Start Chromium on your own Pal display, with your own profile.
+#
+#   chromium https://example.org        (the chromium command runs this)
+#
+# Every display owner (each bot, and the user) has a browser profile of their
+# own, so any number of them can browse at once. Each also gets a
+# remote-debugging port of its own, 9300 + the display number, through which
+# the Pal runtime drives the bot's browser and carries logins between
+# everyone's browsers. Run again while the browser is open, it opens the pages
+# in that browser.
+set -euo pipefail
+
+display=${DISPLAY:?pal-chromium: DISPLAY is not set}
+number=${display#:}
+number=${number%%.*}
+
+owner=${PAL_DISPLAY_OWNER:-${PAL_BOT_ID:-}}
+if [[ -z $owner ]]; then
+    for env_file in "$HOME"/.config/pal/displays/*.env; do
+        [[ -f $env_file ]] || continue
+        if grep -qx "PAL_DISPLAY_NUMBER=$number" "$env_file"; then
+            owner=$(sed -n 's/^PAL_DISPLAY_OWNER=//p' "$env_file")
+            break
+        fi
+    done
+fi
+owner=${owner:-display$number}
+
+profile=$HOME/.local/share/pal/browsers/$owner
+downloads=${PAL_WORKSPACE:-$HOME/workspaces}/downloads
+if [[ ! -e $profile/Default/Preferences ]]; then
+    # A new profile: downloads go to the team's folder, without asking.
+    mkdir -p "$profile/Default" "$downloads"
+    printf '{"download": {"default_directory": "%s", "prompt_for_download": false}}\n' \
+        "$downloads" >"$profile/Default/Preferences"
+fi
+
+exec /usr/bin/chromium \
+    --user-data-dir="$profile" \
+    --remote-debugging-port=$((9300 + number)) \
+    --remote-debugging-address=127.0.0.1 \
+    --password-store=basic \
+    --no-first-run \
+    --no-default-browser-check \
+    --disable-features=Translate,MediaRouter \
+    --disable-background-timer-throttling \
+    --disable-backgrounding-occluded-windows \
+    --disable-renderer-backgrounding \
+    --start-maximized \
+    "$@"
