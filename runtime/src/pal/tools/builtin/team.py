@@ -33,10 +33,14 @@ class TeamGateway(Protocol):
         """Deliver a message; return the reply when ``wait_for_reply`` is set."""
         ...
 
+    async def react(self, bot_id: str, emoji: str) -> Any:
+        """React to the message the bot is handling."""
+        ...
+
 
 class TeamTools(ToolProvider):
     name = "team"
-    description = "talk to teammates: list_bots, message_bot"
+    description = "talk to teammates and react to messages: list_bots, message_bot, react"
 
     def __init__(self, team: TeamGateway) -> None:
         self.team = team
@@ -82,4 +86,26 @@ class TeamTools(ToolProvider):
                 return text_result(f"Message queued for {args['to']}.")
             return text_result(f"Reply from {args['to']}:\n\n{reply}")
 
-        return [list_bots, message_bot]
+        @tool(
+            "react",
+            "React to the message you are answering with one emoji, like a tapback (👍 ❤️ 😂 "
+            "🎉 👀 ✅). It shows on that message. When a reaction says everything (thanks, "
+            "an acknowledgement, a simple 'ok'), react and end your turn without writing any "
+            "text: then no message is sent. A new reaction replaces your earlier one.",
+            {
+                "type": "object",
+                "properties": {"emoji": {"type": "string", "description": "A single emoji."}},
+                "required": ["emoji"],
+            },
+        )
+        async def react(args: dict[str, Any]) -> ToolResult:
+            try:
+                await team.react(bot_id, str(args.get("emoji", "")))
+            except TeamMessagingError as exc:
+                return error_result(str(exc))
+            return text_result(
+                f"Reacted {args['emoji'].strip()}. If that says it all, end your turn with no "
+                "text and no message is sent."
+            )
+
+        return [list_bots, message_bot, react]
