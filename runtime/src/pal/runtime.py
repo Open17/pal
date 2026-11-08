@@ -157,16 +157,40 @@ class PalRuntime:
         log.info("added bot %s (%s)", bot.id, bot.name)
         return agent
 
-    def recolor_bot(self, bot_id: str, color: str) -> BotAgent:
-        """Change a bot's color and save it to the bot's definition file."""
+    def edit_bot(
+        self,
+        bot_id: str,
+        *,
+        name: str | None = None,
+        role: str | None = None,
+        persona: str | None = None,
+        color: str | None = None,
+    ) -> BotAgent:
+        """Change a bot's name, role, instructions, or color, and save them to its
+        definition file. Its id stays, so its chats and memory carry over."""
 
         agent = self.team.agent(bot_id)
-        bot = replace(agent.definition, color=validate_color(color, where=bot_id))
+        changes: dict[str, str | None] = {}
+        if name is not None:
+            if not name.strip():
+                raise ConfigError("a bot needs a name")
+            changes["name"] = name.strip()
+        if role is not None:
+            changes["role"] = role.strip()
+        if persona is not None:
+            changes["persona"] = persona.strip()
+        if color is not None:
+            changes["color"] = validate_color(color, where=bot_id)
+        bot = replace(agent.definition, **changes)
         save_bot(self._bots_dir, bot)
         agent.definition = bot
         self.config = replace(
             self.config, bots=tuple(bot if b.id == bot_id else b for b in self.config.bots)
         )
+        if changes.keys() - {"color"}:
+            # Prompts name every teammate, so each bot picks the change up next turn.
+            for member in self.team.agents:
+                member.refresh_prompt()
         self.bus.publish(EventType.BOT_UPDATED, bot=bot_id, **agent.to_dict())
         return agent
 
