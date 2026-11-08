@@ -151,3 +151,13 @@ async def test_tools_wake_the_display_first(computer: ComputerTools) -> None:
     assert computer.displays.get("atlas").state == "stopped"
     await handlers(computer)["list_windows"]({})
     assert computer.displays.get("atlas").state == "running"
+
+
+async def test_drag_moves_in_steps_with_the_button_held(computer: ComputerTools) -> None:
+    await handlers(computer)["screenshot"]({})
+    await handlers(computer)["drag"]({"from_x": 10, "from_y": 20, "to_x": 110, "to_y": 220})
+    call = FakeDesktop.calls[-1]
+    assert call[:7] == ("xdotool", "mousemove", "--sync", "20", "40", "mousedown", "1")
+    moves = [call[i + 1 : i + 3] for i, arg in enumerate(call) if arg == "mousemove"][1:]
+    assert len(moves) == 15 and moves[-1] == ("220", "440")  # screen is 2x the screenshot
+    assert call[-2:] == ("mouseup", "1")

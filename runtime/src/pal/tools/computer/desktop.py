@@ -175,14 +175,17 @@ class Desktop:
             "click", "--repeat", str(count), "--delay", "80", str(BUTTONS[button]),
         )  # fmt: skip
 
-    async def drag(self, start: tuple[int, int], end: tuple[int, int]) -> None:
-        await self.run(
-            "xdotool",
-            "mousemove", "--sync", str(start[0]), str(start[1]), "mousedown", "1",
-            "sleep", "0.15",
-            "mousemove", "--sync", str(end[0]), str(end[1]),
-            "sleep", "0.15", "mouseup", "1",
-        )  # fmt: skip
+    async def drag(self, start: tuple[int, int], end: tuple[int, int], *, steps: int = 15) -> None:
+        # Move in steps while the button is down: window managers and most
+        # applications ignore a press that jumps straight to its destination.
+        args = ["xdotool", "mousemove", "--sync", str(start[0]), str(start[1]), "mousedown", "1"]
+        args += ["sleep", "0.1"]
+        for step in range(1, steps + 1):
+            x = start[0] + (end[0] - start[0]) * step // steps
+            y = start[1] + (end[1] - start[1]) * step // steps
+            args += ["mousemove", str(x), str(y), "sleep", "0.02"]
+        args += ["sleep", "0.1", "mouseup", "1"]
+        await self.run(*args)
 
     async def scroll(self, x: int, y: int, direction: str, amount: int) -> None:
         if direction not in SCROLL_BUTTONS:
