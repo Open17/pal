@@ -10,7 +10,10 @@
 Description=Pal display for %i
 
 [Service]
-Type=simple
+# Ready once the desktop's window manager is running (see pal-display-session).
+Type=notify
+NotifyAccess=all
+TimeoutStartSec=60
 Slice=pal-display-%i.slice
 EnvironmentFile=%h/.config/pal/displays/%i.env
 ExecStart=/opt/pal/bin/pal-display-session
