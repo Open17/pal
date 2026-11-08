@@ -24,6 +24,9 @@ from .state import BotStateStore, ModelOverride
 log = get_logger(__name__)
 
 
+REACTION_DELAY_SECONDS = 2.5
+
+
 class UnknownBotError(KeyError):
     pass
 
@@ -50,6 +53,12 @@ class BotTeam(TeamGateway):
         self.bus = bus
         self._agents: dict[str, BotAgent] = {}
         self._waiting_on: dict[str, str] = {}
+        #: How long the user's reaction settles before its bot is told, so
+        #: trying a few in a row reaches it once, as the last one.
+        self.reaction_delay = REACTION_DELAY_SECONDS
+        self._pending_reactions: dict[str, asyncio.Task[None]] = {}
+        #: The user's reaction each bot last heard about, by message id.
+        self._told_reactions: dict[str, str] = {}
 
     # -- membership --------------------------------------------------------
 
@@ -90,6 +99,7 @@ class BotTeam(TeamGateway):
             agent.start()
 
     async def stop(self) -> None:
+        await self._drop_pending_reactions()
         await asyncio.gather(*(agent.stop() for agent in self._agents.values()))
 
     # -- TeamGateway -------------------------------------------------------
@@ -159,6 +169,10 @@ class BotTeam(TeamGateway):
         target = agent.current_message if agent else None
         if agent is None or target is None:
             raise TeamMessagingError("There is no message to react to right now.")
+        if target.kind == "reaction":
+            raise TeamMessagingError(
+                "You can't react to a reaction. Reply in words, or not at all."
+            )
         try:
             emoji = clean_reaction(emoji, allow_empty=False)
         except ValueError as exc:
@@ -168,9 +182,15 @@ class BotTeam(TeamGateway):
         return reaction
 
     async def _record_reaction(self, sender: str, target: Message, emoji: str) -> Message:
-        """Record a reaction in the target's conversation and tell its author."""
+        """Record a reaction in the target's conversation and tell its author.
+
+        A bot hears about the user's reaction right away, in a turn of its own
+        (see ``_tell_reaction``). Anything else it reads with its next message:
+        a teammate's reaction, or the user taking one back.
+        """
 
         recipient = target.recipient if target.sender == sender else target.sender
+        quoted = excerpt(target.content)
         reaction = await self.messenger.record(
             Message(
                 sender=sender,
@@ -178,18 +198,55 @@ class BotTeam(TeamGateway):
                 content=emoji,
                 kind="reaction",
                 reply_to=target.id,
+                metadata={"quote": {"sender": target.sender, "content": quoted}},
             )
         )
         author = self._agents.get(target.sender)
-        if author is not None and target.sender != sender:
-            who = "The user" if sender == USER_ID else self.display_name(sender)
-            quoted = excerpt(target.content)
+        if author is None or target.sender == sender:
+            return reaction
+        if sender == USER_ID:
+            pending = self._pending_reactions.pop(target.id, None)
+            if pending is not None:
+                pending.cancel()
+            self._pending_reactions[target.id] = asyncio.create_task(
+                self._tell_reaction(author, reaction), name=f"reaction-{target.id}"
+            )
+        else:
+            who = self.display_name(sender)
             author.note(
                 f'[{who} reacted {emoji} to your message: "{quoted}"]'
                 if emoji
                 else f'[{who} took back their reaction to your message: "{quoted}"]'
             )
         return reaction
+
+    async def _tell_reaction(self, author: BotAgent, reaction: Message) -> None:
+        """Once the user's reaction settles, give the bot a turn to respond to it."""
+
+        target = reaction.reply_to or ""
+        try:
+            await asyncio.sleep(self.reaction_delay)
+        except asyncio.CancelledError:
+            return  # a newer reaction replaced this one
+        self._pending_reactions.pop(target, None)
+        told = self._told_reactions.get(target, "")
+        if reaction.content == told:
+            return  # back to what the bot already knows
+        if reaction.content:
+            self._told_reactions[target] = reaction.content
+            author.submit(WorkItem(reaction))
+        else:
+            # Taking a reaction back rarely needs an answer: noted, not a turn.
+            self._told_reactions.pop(target, None)
+            quoted = reaction.metadata["quote"]["content"]
+            author.note(f'[The user took back their {told} on your message: "{quoted}"]')
+
+    async def _drop_pending_reactions(self) -> None:
+        tasks = list(self._pending_reactions.values())
+        self._pending_reactions.clear()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     def _check_can_wait(self, sender: str, recipient: str, chain: tuple[str, ...]) -> None:
         if len(chain) > self.config.messaging.max_chain_depth:
@@ -254,7 +311,8 @@ class BotTeam(TeamGateway):
 
     async def react_from_user(self, bot_id: str, message_id: str, emoji: str) -> Message:
         """The user reacts to a message in their chat with a bot; an empty emoji
-        takes their reaction back. The bot sees it with its next message."""
+        takes their reaction back. A reaction to the bot's own message reaches it
+        a moment later, as a turn it can answer or let pass."""
 
         self.agent(bot_id)
         emoji = clean_reaction(emoji, allow_empty=True)

@@ -291,7 +291,7 @@ class BotAgent:
                 sender=self.id,
                 recipient=incoming.sender,
                 content=text,
-                kind="chat" if incoming.kind == "chat" else "reply",
+                kind="chat" if incoming.kind in ("chat", "reaction") else "reply",
                 reply_to=incoming.id,
                 metadata={
                     "turn_id": turn_id,
@@ -326,6 +326,8 @@ class BotAgent:
         text = text.strip()
         if text:
             return text
+        if incoming.kind == "reaction":
+            return None  # a reaction that needed no answer
         if self._reaction is None:
             return "(no response)"
         # Someone waiting on an answer still gets one.
