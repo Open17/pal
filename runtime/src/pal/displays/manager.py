@@ -82,12 +82,14 @@ class DisplayManager:
         self._save_state()
 
     async def unregister(self, owner: str) -> None:
-        """Close a removed bot's display, with everything on it, and free its number."""
+        """Close a removed bot's display, with everything on it, forget the windows
+        saved for it, and free its number."""
 
         display = self.get(owner)
         async with self._locks[owner]:
             if display.is_live or await self.backend.probe(display) != "stopped":
                 await self.backend.stop(display)
+            await self.backend.forget_windows(display)
             del self._displays[owner]
         self._save_state()
 
