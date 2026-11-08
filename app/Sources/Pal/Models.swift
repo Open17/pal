@@ -83,6 +83,15 @@ nonisolated struct Message: Decodable, Identifiable, Hashable, Sendable {
     var conversationId: String
 
     var isError: Bool { metadata["error"] == .bool(true) }
+    /// An emoji on the message named by `replyTo`, not a message of its own.
+    var isReaction: Bool { kind == "reaction" }
+
+    /// The message you were replying to when you sent this one.
+    var quote: (sender: String, content: String)? {
+        guard sender == "user", let quote = metadata["quote"],
+              let from = quote["sender"]?.string, let content = quote["content"]?.string else { return nil }
+        return (from, content)
+    }
 
     private enum CodingKeys: String, CodingKey {
         case id, sender, recipient, content, kind, replyTo, metadata, createdAt, conversationId
