@@ -27,7 +27,8 @@ extension Color {
     }
 
     /// The app's theme color: buttons, badges, the selected sidebar row.
-    static let palAccent = Color(.sRGB, red: 0.000, green: 0.533, blue: 1.000)
+    /// Dark enough for white text on it to read easily (4.6:1).
+    static let palAccent = Color(hex: 0x0A72E8)
     static let chatBackground = Color(nsColor: .textBackgroundColor)
     static let card = Color(nsColor: .controlBackgroundColor)
     static let incomingBubble = adaptive(0xEDEEF3, 0x2A2B31)
@@ -37,8 +38,8 @@ extension Color {
     static let statusOrange = Color(nsColor: .systemOrange)
     static let statusRed = Color(nsColor: .systemRed)
 
-    /// Your sent messages.
-    static let outgoingBubble = Color(.sRGB, red: 0.039, green: 0.553, blue: 0.996)
+    /// Your sent messages, in the theme color so their white text reads easily.
+    static let outgoingBubble = palAccent
 }
 
 // MARK: - Avatars
@@ -245,7 +246,8 @@ enum Fmt {
         let cal = Calendar.current
         if cal.isDateInToday(date) { return time(date) }
         if cal.isDateInYesterday(date) { return "Yesterday" }
-        if let days = cal.dateComponents([.day], from: date, to: .now).day, days < 7 {
+        // Counted in calendar days, so a weekday name never means a week ago today.
+        if let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: .now)).day, days < 7 {
             return date.formatted(.dateTime.weekday(.wide))
         }
         return date.formatted(.dateTime.month(.abbreviated).day())
@@ -258,10 +260,12 @@ enum Fmt {
         return date.formatted(.dateTime.weekday(.wide).month(.wide).day())
     }
 
-    static func relative(_ date: Date) -> String {
+    /// For the middle of a sentence: "today at 3:04 PM", "Tue, Nov 4, 3:04 PM".
+    static func relativeInline(_ date: Date) -> String {
         let cal = Calendar.current
-        if cal.isDateInToday(date) { return "Today at \(time(date))" }
-        if cal.isDateInTomorrow(date) { return "Tomorrow at \(time(date))" }
+        if cal.isDateInToday(date) { return "today at \(time(date))" }
+        if cal.isDateInYesterday(date) { return "yesterday at \(time(date))" }
+        if cal.isDateInTomorrow(date) { return "tomorrow at \(time(date))" }
         return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())
     }
 }
