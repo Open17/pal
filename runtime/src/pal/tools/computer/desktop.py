@@ -8,11 +8,13 @@ Runs ``xdotool`` (pointer and keyboard), ``wmctrl`` (windows), ``scrot``
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..pace import key_delay_ms
 
@@ -158,6 +160,20 @@ class Desktop:
     async def screen_size(self) -> tuple[int, int]:
         width, height = (await self.run("xdotool", "getdisplaygeometry")).split()
         return int(width), int(height)
+
+    async def accessibility(
+        self, *, screen: tuple[int, int], all_windows: bool = False
+    ) -> dict[str, Any]:
+        """The windows on screen and what's in them, from ``pal-screen``."""
+
+        args = ["pal-screen", "--screen", f"{screen[0]}x{screen[1]}"]
+        if all_windows:
+            args.append("--all")
+        output = await self.run(*args, time_limit=30)
+        try:
+            return json.loads(output)
+        except ValueError as exc:
+            raise DesktopError(f"could not read the screen: {exc}") from exc
 
     async def recognize_text(self, image: Path, *, layout: int = 11) -> str:
         """Tesseract's TSV word boxes; ``layout`` is its page segmentation mode."""

@@ -56,7 +56,10 @@ def system_prompt(context: PromptContext) -> str:
         "starting graphical programs, and launch them with `pal-open <program> [args]` "
         "so they stay open with your display. It falls asleep after "
         f"{context.idle_minutes} idle minutes and keeps its windows open while asleep. "
-        "The user can watch and control your display.",
+        "The user can watch and control your display.\n"
+        "- To see your screen, use `read_screen` first: it lists the windows, buttons, "
+        "fields and text with points to click, for a fraction of a screenshot's cost. "
+        "Take a `screenshot` when you need to see images, colors, or layout.",
         "# Your team\n\n"
         + (team_lines or "You currently have no teammates.")
         + "\n\nUse `message_bot` to reach a teammate: `wait_for_reply=true` when you need "
