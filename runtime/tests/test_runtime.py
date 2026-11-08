@@ -138,6 +138,15 @@ async def test_bots_are_added_and_removed_while_running(tmp_path: Path) -> None:
                 assert response.status == 404
             async with s.post("/v1/bots", json={"name": "  "}) as response:
                 assert response.status == 400
+
+            # Role and instructions are optional: the app sends them blank.
+            body = {"name": "Blank", "role": "", "persona": "  "}
+            async with s.post("/v1/bots", json=body) as response:
+                assert response.status == 201
+                created = await response.json()
+            assert (created["role"], created["persona"]) == ("", "")
+            async with s.post("/v1/bots", json={"name": "Odd", "role": 7}) as response:
+                assert response.status == 400
     finally:
         await runtime.stop()
 
