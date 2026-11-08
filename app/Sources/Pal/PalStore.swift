@@ -104,6 +104,8 @@ final class PalStore {
     var replyingTo: [String: Message] = [:]
     /// A message to bring into view and highlight, by bot id; the chat clears it.
     var focusedMessage: [String: String] = [:]
+    /// Bots whose computer is open beside their chat. Saved between launches.
+    private(set) var displayOpen = Set(UserDefaults.standard.stringArray(forKey: "openDisplays") ?? [])
     /// A memory to show in Memory; the view clears it.
     var focusedMemory: MemoryFocus?
     /// Where you left each chat scrolled up, by bot id, until the app quits.
@@ -520,6 +522,11 @@ final class PalStore {
 
     func open(_ palId: String) {
         selection = .pal(palId)
+    }
+
+    func setDisplayOpen(_ open: Bool, for palId: String) {
+        if open { displayOpen.insert(palId) } else { displayOpen.remove(palId) }
+        UserDefaults.standard.set(Array(displayOpen).sorted(), forKey: "openDisplays")
     }
 
     /// The sidebar's rows, top to bottom.

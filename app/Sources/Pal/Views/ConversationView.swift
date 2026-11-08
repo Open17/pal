@@ -5,7 +5,11 @@ struct ConversationView: View {
     @Environment(PalStore.self) private var store
     let pal: Pal
     @AppStorage("showInspector") private var showInspector = false
-    @AppStorage("showDisplay") private var showDisplay = false
+    /// Whether this bot's computer is open beside the chat; each bot remembers its own.
+    private var showDisplay: Bool { store.displayOpen.contains(pal.id) }
+    private var displayToggle: Binding<Bool> {
+        Binding(get: { showDisplay }, set: { store.setDisplayOpen($0, for: pal.id) })
+    }
     @State private var confirmReset = false
     @State private var confirmRemove = false
 
@@ -56,14 +60,14 @@ struct ConversationView: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 ControlGroup {
-                    Toggle(isOn: $showDisplay) {
+                    Toggle(isOn: displayToggle) {
                         Label("Computer", systemImage: "display")
                     }
                     .help(showDisplay ? "Hide \(pal.name)’s computer" : "Watch \(pal.name)’s computer")
                     ModelMenu(pal: pal)
                     Menu {
+                        // ⌘I lives in the menu bar's Bot menu, so it works without opening this.
                         Button(showInspector ? "Hide Details" : "Show Details") { showInspector.toggle() }
-                            .keyboardShortcut("i")
                         Button("Bot Settings…") { store.sheet = .botSettings(pal) }
                         Divider()
                         Button("New Conversation…") { confirmReset = true }
