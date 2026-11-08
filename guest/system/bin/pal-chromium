@@ -48,4 +48,5 @@ exec /usr/bin/chromium \
     --disable-backgrounding-occluded-windows \
     --disable-renderer-backgrounding \
     --start-maximized \
+    --force-renderer-accessibility \
     "$@"

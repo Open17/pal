@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,7 @@ class FakeDesktop(Desktop):
     calls: list[tuple] = []
     opened: list[str] = []
     screen = (2560, 1600)
+    tree: dict = {"windows": []}
 
     async def run(self, *args, stdin=None, time_limit=20):
         FakeDesktop.calls.append(args)
@@ -108,6 +110,10 @@ class FakeDesktop(Desktop):
             Image.new("RGB", FakeDesktop.screen, "white").save(args[-1])
         if args[0] == "tesseract":
             return TSV
+        if args[:2] == ("xdotool", "getdisplaygeometry"):
+            return f"{FakeDesktop.screen[0]} {FakeDesktop.screen[1]}\n"
+        if args[0] == "pal-screen":
+            return json.dumps(FakeDesktop.tree)
         if args[0] == "pal-open":
             FakeDesktop.opened.append(
                 "0x01600001  0 2 50 50 600 400  mousepad.Mousepad pal Untitled 1 - Mousepad\n"
@@ -124,6 +130,7 @@ class FakeDesktop(Desktop):
 def computer(tmp_path: Path, monkeypatch) -> ComputerTools:
     FakeDesktop.calls = []
     FakeDesktop.screen = (2560, 1600)
+    FakeDesktop.tree = {"windows": []}
     FakeDesktop.opened = []
     monkeypatch.setattr(provider_module, "OPEN_SETTLE", 0)
     displays = DisplayManager(
@@ -181,7 +188,7 @@ def test_provider_requires_display(computer: ComputerTools) -> None:
     assert computer.requires_display is True
     assert (
         len(computer.tools(__import__("pal.tools", fromlist=["ToolContext"]).ToolContext("atlas")))
-        == 13
+        == 14
     )
 
 
@@ -237,3 +244,79 @@ def test_typing_is_paced_for_people_to_follow() -> None:
 async def test_type_text_types_key_by_key(computer: ComputerTools) -> None:
     await handlers(computer)["type_text"]({"text": "hello"})
     assert FakeDesktop.calls[-1] == ("xdotool", "type", "--delay", "45", "--", "hello")
+
+
+def node(depth, role, name="", text="", states=(), box=(0, 0, 10, 10)) -> dict:
+    return {
+        "depth": depth, "role": role, "name": name, "text": text,
+        "states": list(states), "box": list(box),
+    }  # fmt: skip
+
+
+async def test_read_screen_describes_the_active_window(computer: ComputerTools) -> None:
+    FakeDesktop.tree = {
+        "windows": [
+            {
+                "app": "mousepad", "title": "notes.txt - Mousepad", "role": "frame",
+                "active": True, "box": [0, 54, 1280, 900], "truncated": False,
+                "nodes": [
+                    node(0, "menu bar", box=(10, 112, 1200, 54)),
+                    node(1, "menu", "File", box=(10, 112, 74, 54)),
+                    node(0, "push button", "Save", states=["disabled"], box=(200, 200, 100, 40)),
+                    node(0, "text", text="first line\nsecond line\n",
+                         states=["focused", "editable"], box=(12, 172, 1196, 734)),
+                ],
+            },
+            {
+                "app": "Thunar", "title": "workspaces - Thunar", "role": "frame",
+                "active": False, "box": [1300, 0, 1200, 800], "nodes": None, "truncated": False,
+            },
+        ]
+    }  # fmt: skip
+    seen = text(await handlers(computer)["read_screen"]({}))
+    assert seen.splitlines()[:4] == [
+        "Screen 1280x800. Points are where to click, in screenshot pixels.",
+        "Windows:",
+        "  “notes.txt - Mousepad” — mousepad at (0, 27) 640x450 (active)",
+        "  “workspaces - Thunar” — Thunar at (650, 0) 600x400",
+    ]
+    assert "  menu “File” @ (24, 70)" in seen  # screen is twice the screenshot's size
+    assert "button “Save” (disabled) @ (125, 110)" in seen
+    assert "text area (focused, editable) @ (305, 270)" in seen
+    assert "  │ first line\n  │ second line" in seen
+    assert "Text read from the pixels" not in seen  # the tree said plenty
+    assert not any(call[0] == "scrot" for call in FakeDesktop.calls)  # no screenshot taken
+    # The points match a screenshot's pixels, so clicks land where they say.
+    await handlers(computer)["click"]({"x": 125, "y": 110})
+    assert FakeDesktop.calls[-1][:5] == ("xdotool", "mousemove", "--sync", "250", "220")
+
+
+async def test_read_screen_reads_pixels_where_the_tree_is_empty(computer: ComputerTools) -> None:
+    FakeDesktop.tree = {
+        "windows": [
+            {
+                "app": "oldapp", "title": "Old App", "role": "frame", "active": True,
+                "box": [0, 0, 2560, 1600], "nodes": [node(0, "filler")], "truncated": False,
+            }
+        ]
+    }  # fmt: skip
+    seen = text(await handlers(computer)["read_screen"]({}))
+    assert "Text read from the pixels of this window:" in seen
+    assert "  “Cancel” @ (215, 153)" in seen
+
+
+async def test_read_screen_can_describe_another_window(computer: ComputerTools) -> None:
+    FakeDesktop.tree = {
+        "windows": [
+            {"app": "a", "title": "Alpha", "role": "frame", "active": True, "box": [0, 0, 9, 9],
+             "nodes": [node(0, "push button", "One")], "truncated": False},
+            {"app": "b", "title": "Beta", "role": "frame", "active": False, "box": [0, 0, 9, 9],
+             "nodes": [node(0, "push button", "Two")], "truncated": False},
+        ]
+    }  # fmt: skip
+    seen = text(await handlers(computer)["read_screen"]({"window": "beta"}))
+    assert "“Two”" in seen and "“One”" not in seen
+    reading = next(call for call in FakeDesktop.calls if call[0] == "pal-screen")
+    assert reading[-1] == "--all"  # every window's controls, to pick from
+    missing = await handlers(computer)["read_screen"]({"window": "gamma"})
+    assert missing["is_error"] is True

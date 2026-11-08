@@ -14,7 +14,7 @@ from PIL import Image
 from pal.displays import DisplayBackendError, DisplayManager
 
 from ..base import ToolContext, ToolProvider, ToolResult, error_result, text_result
-from . import ocr
+from . import ocr, screen
 from .desktop import Desktop, DesktopError, Window
 
 #: Screenshots are scaled to fit this box; coordinates map back to the screen.
@@ -82,9 +82,35 @@ class ComputerTools(ToolProvider):
                 return error_result(str(exc))
 
         @tool(
+            "read_screen",
+            "See what is on your screen, as text: the open windows, and the buttons, menus, "
+            "fields and text of the active window, each with the point to click. Exact, and "
+            "far cheaper than a screenshot, so look with this first; take a screenshot when "
+            "you need to see pictures, colors, or layout. `window` (part of a title) "
+            "describes that window instead; `all` describes every window.",
+            {
+                "type": "object",
+                "properties": {
+                    "window": {"type": "string"},
+                    "all": {"type": "boolean"},
+                },
+            },
+        )
+        async def read_screen(args: dict[str, Any]) -> ToolResult:
+            async def run() -> ToolResult:
+                return text_result(
+                    await provider.describe_screen(
+                        bot_id, window=args.get("window"), all_windows=bool(args.get("all"))
+                    )
+                )
+
+            return await guarded(run)
+
+        @tool(
             "screenshot",
-            "See your screen. Coordinates you pass to the other computer tools are pixels in "
-            "this image (top-left is 0,0).",
+            "See your screen as an image. Coordinates you pass to the other computer tools "
+            "are pixels in this image (top-left is 0,0). read_screen is cheaper when you "
+            "only need to know what's there.",
             {},
         )
         async def screenshot(args: dict[str, Any]) -> ToolResult:
@@ -208,7 +234,7 @@ class ComputerTools(ToolProvider):
         )
         async def find_text(args: dict[str, Any]) -> ToolResult:
             async def run() -> ToolResult:
-                lines = await provider.read_screen(bot_id)
+                lines = await provider.recognize_screen(bot_id)
                 query = (args.get("text") or "").strip()
                 if not query:
                     rows = [
@@ -353,7 +379,7 @@ class ComputerTools(ToolProvider):
             return text_result(f"Waited {seconds:g}s.")
 
         return [
-            screenshot, click, move_mouse, drag, scroll, type_text, press_keys,
+            read_screen, screenshot, click, move_mouse, drag, scroll, type_text, press_keys,
             find_text, list_windows, window, open_app, clipboard, wait,
         ]  # fmt: skip
 
@@ -367,7 +393,58 @@ class ComputerTools(ToolProvider):
         self._scale[bot_id] = scale
         return png, size, scale
 
-    async def read_screen(self, bot_id: str) -> list[ocr.Line]:
+    async def describe_screen(
+        self, bot_id: str, *, window: str | None = None, all_windows: bool = False
+    ) -> str:
+        """The screen as text, from the accessibility tree (see ``screen``)."""
+
+        desktop = self.desktop(bot_id)
+        size = await desktop.screen_size()
+        # Same scale a screenshot would have, so the points match its pixels.
+        scale = max(size[0] / MAX_SCREENSHOT[0], size[1] / MAX_SCREENSHOT[1], 1.0)
+        self._scale[bot_id] = scale
+        data = await desktop.accessibility(screen=size, all_windows=bool(window) or all_windows)
+        if window:
+            needle = window.lower()
+            for entry in data.get("windows", []):
+                if needle not in entry["title"].lower() and needle != entry["app"].lower():
+                    entry["nodes"] = None
+            if all(entry["nodes"] is None for entry in data.get("windows", [])):
+                raise DesktopError(f"no window matches {window!r}")
+
+        def to_image(x: int, y: int) -> tuple[int, int]:
+            return round(x / scale), round(y / scale)
+
+        lines: list[ocr.Line] | None = None
+
+        async def pixels(box: list[int]) -> list[ocr.Line]:
+            nonlocal lines
+            if lines is None:
+                lines = await self.recognize_screen(bot_id)
+            x, y, w, h = (round(v / scale) for v in box)
+            return [
+                line
+                for line in lines
+                if x <= line.box.center[0] <= x + w and y <= line.box.center[1] <= y + h
+            ]
+
+        # Text read from pixels is only needed for windows the tree says little about.
+        sparse_boxes = [
+            entry["box"]
+            for entry in data.get("windows", [])
+            if entry.get("nodes") is not None
+            and entry.get("box")
+            and sum(1 for n in entry["nodes"] if n["name"] or n["text"].strip()) < screen.SPARSE
+        ]
+        found = {tuple(box): await pixels(box) for box in sparse_boxes}
+        return screen.describe(
+            data,
+            to_image,
+            screen=size,
+            pixel_text=lambda box: found.get(tuple(box), []),
+        )
+
+    async def recognize_screen(self, bot_id: str) -> list[ocr.Line]:
         """Text on screen, with boxes in screenshot coordinates."""
 
         desktop = self.desktop(bot_id)
