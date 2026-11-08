@@ -24,7 +24,7 @@ from pal.log import get_logger
 from pal.memory import MemoryService
 from pal.messaging import ConversationLog, EventBus, Messenger
 from pal.tools import ToolProvider, ToolRegistry
-from pal.tools.browser import Browsers, BrowserTools
+from pal.tools.browser import Browsers, BrowserTools, LoginSync
 from pal.tools.builtin import DisplayTools, MemoryTools, TeamTools
 from pal.tools.computer import ComputerTools
 
@@ -57,6 +57,9 @@ class PalRuntime:
         self.team = BotTeam(config, self.state, self.messenger, self.bus)
 
         self.browsers = Browsers(self.displays, paths.data / "cache" / "screens")
+        self.logins = LoginSync(
+            self.browsers, self.displays, paths.data / "browsers" / "logins.json"
+        )
         self.tools = ToolRegistry(
             [
                 MemoryTools(self.memory),
@@ -122,6 +125,7 @@ class PalRuntime:
         self._background.append(
             asyncio.create_task(self.displays.run_idle_monitor(), name="display-idle-monitor")
         )
+        self._background.append(asyncio.create_task(self.logins.run(), name="login-sync"))
         log.info("Pal %s running with bots: %s", __version__, ", ".join(self.config.bot_ids))
 
     async def stop(self) -> None:
