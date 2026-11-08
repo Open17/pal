@@ -45,6 +45,14 @@ class BotTeam(TeamGateway):
         for agent in agents:
             self._agents[agent.id] = agent
 
+    def remove(self, bot_id: str) -> BotAgent:
+        """Take a bot off the team (the caller stops it)."""
+
+        agent = self.agent(bot_id)
+        del self._agents[bot_id]
+        self._waiting_on.pop(bot_id, None)
+        return agent
+
     def agent(self, bot_id: str) -> BotAgent:
         try:
             return self._agents[bot_id]

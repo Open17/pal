@@ -15,6 +15,42 @@ async def list_bots(request: web.Request) -> web.Response:
     return web.json_response({"bots": [agent.to_dict() for agent in context(request).team.agents]})
 
 
+@routes.post("/v1/bots")
+async def create_bot(request: web.Request) -> web.Response:
+    """Add a bot: ``{"name": ..., "role": ..., "persona": ..., "color": ...}``."""
+
+    manager = _manager(request)
+    body = await json_body(request)
+    name = body.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ApiError(400, "invalid_request", "'name' must be a non-empty string")
+    agent = await manager.add_bot(
+        name,
+        role=optional_str(body, "role") or "",
+        persona=optional_str(body, "persona") or "",
+        color=optional_str(body, "color"),
+    )
+    payload = agent.to_dict()
+    payload["persona"] = agent.definition.persona
+    return web.json_response(payload, status=201)
+
+
+@routes.delete("/v1/bots/{bot_id}")
+async def delete_bot(request: web.Request) -> web.Response:
+    manager = _manager(request)
+    bot_id = request.match_info["bot_id"]
+    context(request).team.agent(bot_id)  # unknown bots are a 404
+    await manager.remove_bot(bot_id)
+    return web.Response(status=204)
+
+
+def _manager(request: web.Request):
+    manager = context(request).bots
+    if manager is None:
+        raise ApiError(501, "not_supported", "bots cannot be added or removed here")
+    return manager
+
+
 @routes.get("/v1/bots/{bot_id}")
 async def get_bot(request: web.Request) -> web.Response:
     agent = context(request).team.agent(request.match_info["bot_id"])

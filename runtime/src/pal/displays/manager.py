@@ -72,6 +72,16 @@ class DisplayManager:
             self._displays.setdefault(owner, self._make(owner, numbers[owner]))
         self._save_state()
 
+    async def unregister(self, owner: str) -> None:
+        """Close a removed bot's display, with everything on it, and free its number."""
+
+        display = self.get(owner)
+        async with self._locks[owner]:
+            if display.is_live or await self.backend.probe(display) != "stopped":
+                await self.backend.stop(display)
+            del self._displays[owner]
+        self._save_state()
+
     def _next_free_number(self, used: Iterable[int]) -> int:
         taken = set(used) | {self.settings.operator_display}
         number = self.settings.first_bot_display
