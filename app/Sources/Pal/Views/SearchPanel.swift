@@ -314,21 +314,25 @@ enum SearchResults {
                     title: message.sender == "user" ? "You to \(store.name(of: bot))" : store.name(of: bot),
                     subtitle: snippet(message.content, around: q),
                     date: message.createdAt,
-                    open: { $0.open(bot) }
+                    open: { $0.reveal(message.id, in: bot) }
                 )
             }
 
-        let memories = (store.sharedMemory + store.botMemory.values.joined())
-            .filter { matches($0.title) || matches($0.description) || matches($0.body) }
+        let scoped = store.sharedMemory.map { ("shared", $0) }
+            + store.botMemory.sorted { $0.key < $1.key }.flatMap { scope, entries in entries.map { (scope, $0) } }
+        let memories = scoped
+            .filter { matches($0.1.title) || matches($0.1.description) || matches($0.1.body) }
             .prefix(10)
-            .map { entry in
+            .map { scope, entry in
                 SearchResult(
-                    id: "memory-\(entry.id)",
+                    id: "memory-\(scope)-\(entry.id)",
                     icon: .symbol("brain"),
                     title: entry.title,
-                    subtitle: entry.description.isEmpty ? snippet(entry.body, around: q) : entry.description,
+                    subtitle: [scope == "shared" ? "Shared" : store.name(of: scope),
+                               entry.description.isEmpty ? snippet(entry.body, around: q) : entry.description]
+                        .joined(separator: " · "),
                     date: entry.updatedAt,
-                    open: { $0.selection = .memory }
+                    open: { $0.reveal(memory: entry.id, scope: scope) }
                 )
             }
 

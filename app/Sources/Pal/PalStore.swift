@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+/// A memory entry and the list it's in: "shared" or a bot id.
+struct MemoryFocus: Equatable {
+    let scope: String
+    let id: String
+}
+
 /// What's selected in the sidebar.
 enum SidebarItem: Hashable {
     case memory
@@ -98,6 +104,8 @@ final class PalStore {
     var replyingTo: [String: Message] = [:]
     /// A message to bring into view and highlight, by bot id; the chat clears it.
     var focusedMessage: [String: String] = [:]
+    /// A memory to show in Memory; the view clears it.
+    var focusedMemory: MemoryFocus?
     /// Where you left each chat scrolled up, by bot id, until the app quits.
     /// No entry means you were at the newest message, and it opens there.
     @ObservationIgnored var scrollSpots: [String: CGFloat] = [:]
@@ -582,6 +590,12 @@ final class PalStore {
     func copy(_ message: Message) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(message.content, forType: .string)
+    }
+
+    /// Opens Memory at one entry, in the list it belongs to.
+    func reveal(memory id: String, scope: String) {
+        selection = .memory
+        focusedMemory = MemoryFocus(scope: scope, id: id)
     }
 
     /// Opens a chat at one of its messages, highlighted for a moment.
