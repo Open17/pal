@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Protocol
 
@@ -25,6 +26,10 @@ class DisplayBackend(Protocol):
     async def thaw(self, display: Display) -> None: ...
     async def probe(self, display: Display) -> DisplayState:
         """The state the display is really in, used to adopt it after a restart."""
+        ...
+
+    async def save_windows(self, display: Display) -> None:
+        """Remember the display's open windows, to reopen when it next starts."""
         ...
 
 
@@ -99,6 +104,30 @@ class SystemdDisplayBackend:
             return "failed"
         return "stopped"
 
+    async def save_windows(self, display: Display) -> None:
+        environment = {
+            **os.environ,
+            "DISPLAY": display.name,
+            "PAL_DISPLAY_OWNER": display.owner,
+            "PAL_DISPLAY_NUMBER": str(display.number),
+        }
+        process = await asyncio.create_subprocess_exec(
+            "pal-windows",
+            "save",
+            env=environment,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(), 60)
+        except TimeoutError:
+            process.kill()
+            log.warning("saving the windows of %s timed out", display.name)
+            return
+        if process.returncode != 0:
+            reason = stderr.decode(errors="replace")[-300:]
+            log.warning("could not save the windows of %s: %s", display.name, reason)
+
     async def _systemctl(self, *args: str, check: bool = True) -> str:
         process = await asyncio.create_subprocess_exec(
             "systemctl",
@@ -139,6 +168,9 @@ class InMemoryDisplayBackend:
 
     async def probe(self, display: Display) -> DisplayState:
         return self.states.get(display.owner, "stopped")
+
+    async def save_windows(self, display: Display) -> None:
+        self.calls.append(("save", display.owner))
 
     def _record(self, action: str, display: Display, state: DisplayState) -> None:
         self.calls.append((action, display.owner))

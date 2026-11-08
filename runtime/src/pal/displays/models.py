@@ -17,6 +17,9 @@ class Display:
     state: DisplayState = "stopped"
     viewers: int = 0
     last_activity: float = 0.0  # monotonic seconds
+    #: When the display last started (not woke): its windows are still being
+    #: reopened for a little while after.
+    started_at: float = 0.0
     error: str | None = None
 
     @property

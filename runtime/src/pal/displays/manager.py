@@ -13,7 +13,7 @@ import contextlib
 import json
 import time
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 
 from pal.config import OPERATOR_ID, DisplaySettings
@@ -24,6 +24,9 @@ from .backend import DisplayBackend, DisplayBackendError
 from .models import Display, DisplayState
 
 log = get_logger(__name__)
+
+#: How long a started display gets to reopen its windows before they're saved.
+RESTORE_GRACE_SECONDS = 40.0
 
 STATE_VERSION = 1
 
@@ -53,6 +56,9 @@ class DisplayManager:
         #: Whether an owner is busy (a bot mid-task); a busy owner's display
         #: stays awake, and its idle time counts from when it finishes.
         self.is_working: Callable[[str], bool] = lambda owner: False
+        #: Called with an owner just before their display stops, while its
+        #: programs still run (to let them close cleanly).
+        self.before_stop: list[Callable[[str], Awaitable[None]]] = []
 
     # -- registration ------------------------------------------------------
 
@@ -134,6 +140,7 @@ class DisplayManager:
                 else:
                     self._set_state(display, "starting")
                     await self.backend.start(display)
+                    display.started_at = self._clock()
             except DisplayBackendError as exc:
                 self._set_state(display, "failed", error=str(exc))
                 raise
@@ -153,6 +160,7 @@ class DisplayManager:
         async with self._locks[owner]:
             if display.state != "running" or (display.viewers and not force):
                 return False
+            await self._save_windows(display)
             try:
                 await self.backend.freeze(display)
             except DisplayBackendError as exc:
@@ -162,15 +170,23 @@ class DisplayManager:
             return True
 
     async def stop(self, owner: str) -> None:
-        """Stop a display entirely. Its windows are closed."""
+        """Stop a display. Its windows close, and reopen when it next starts."""
 
         display = self.get(owner)
         async with self._locks[owner]:
             if display.state == "stopped":
                 return
             if display.state == "sleeping":
+                # It was saved as it fell asleep; wake it so programs can close.
                 with contextlib.suppress(DisplayBackendError):
                     await self.backend.thaw(display)
+            else:
+                await self._save_windows(display)
+            for hook in self.before_stop:
+                try:
+                    await hook(owner)
+                except Exception:
+                    log.exception("closing programs on %s failed", display.name)
             await self.backend.stop(display)
             self._set_state(display, "stopped")
 
@@ -264,8 +280,32 @@ class DisplayManager:
             try:
                 await self.refresh()
                 await self.sleep_idle()
+                await self.save_windows()
             except Exception:
                 log.exception("display idle check failed")
+
+    # -- windows ---------------------------------------------------------------
+
+    async def save_windows(self) -> None:
+        """Remember the open windows of every awake display.
+
+        Done regularly, so even a computer that is switched off without warning
+        reopens (nearly) everything; sleeping displays were saved as they fell
+        asleep.
+        """
+
+        for display in self.all():
+            if display.state == "running":
+                async with self._locks[display.owner]:
+                    if display.state == "running":
+                        await self._save_windows(display)
+
+    async def _save_windows(self, display: Display) -> None:
+        # Right after a start the windows are still being reopened; saving
+        # then would forget the ones not back yet.
+        if self._clock() - display.started_at < RESTORE_GRACE_SECONDS:
+            return
+        await self.backend.save_windows(display)
 
     # -- state -----------------------------------------------------------------
 
