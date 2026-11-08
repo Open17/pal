@@ -224,3 +224,16 @@ async def test_drag_moves_in_steps_with_the_button_held(computer: ComputerTools)
     moves = [call[i + 1 : i + 3] for i, arg in enumerate(call) if arg == "mousemove"][1:]
     assert len(moves) == 15 and moves[-1] == ("220", "440")  # screen is 2x the screenshot
     assert call[-2:] == ("mouseup", "1")
+
+
+def test_typing_is_paced_for_people_to_follow() -> None:
+    from pal.tools.pace import key_delay_ms
+
+    assert key_delay_ms(20) == 45  # short text: a quick typist
+    assert key_delay_ms(1000) == 15  # long text speeds up to finish in about 15s
+    assert key_delay_ms(100_000) == 8  # but never faster than this
+
+
+async def test_type_text_types_key_by_key(computer: ComputerTools) -> None:
+    await handlers(computer)["type_text"]({"text": "hello"})
+    assert FakeDesktop.calls[-1] == ("xdotool", "type", "--delay", "45", "--", "hello")

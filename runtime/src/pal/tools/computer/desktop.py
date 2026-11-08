@@ -14,6 +14,8 @@ import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..pace import key_delay_ms
+
 KEY_ALIASES = {
     "enter": "Return",
     "return": "Return",
@@ -208,7 +210,12 @@ class Desktop:
     # -- keyboard ----------------------------------------------------------
 
     async def type_text(self, text: str) -> None:
-        await self.run("xdotool", "type", "--delay", "8", "--", text, time_limit=120)
+        # Key by key at a pace people watching the display can follow.
+        delay = key_delay_ms(len(text))
+        await self.run(
+            "xdotool", "type", "--delay", str(delay), "--", text,
+            time_limit=30 + len(text) * delay / 1000,
+        )  # fmt: skip
 
     async def press(self, combos: list[str]) -> list[str]:
         keys = [normalize_keys(combo) for combo in combos]
