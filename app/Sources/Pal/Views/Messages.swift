@@ -112,14 +112,27 @@ struct MessageRowView: View {
     let row: MessageRow
     let pal: Pal
     var highlighted = false
-    /// How far around the bubble still counts as on it. Wider than the gap to
-    /// the actions bar, so moving onto the bar keeps it showing.
+    /// How far around the bubble still counts as on it.
     private static let hoverMargin: CGFloat = 10
+    /// The gap between the bubble and its actions bar.
+    private static let actionsGap: CGFloat = 6
+    /// On the side the bar shows, hover reaches about one bar's length out.
+    private static var actionsReach: CGFloat { MessageActions.width + actionsGap }
     @State private var nearBubble = false
     @State private var overActions = false
     @State private var picking = false
 
     private var showsActions: Bool { nearBubble || overActions || picking }
+
+    private var hoverInsets: EdgeInsets {
+        let reach = Self.actionsReach, margin = Self.hoverMargin
+        return EdgeInsets(
+            top: margin,
+            leading: outgoing ? reach : margin,
+            bottom: margin,
+            trailing: outgoing ? margin : reach
+        )
+    }
 
     private var message: Message { row.message }
     private var outgoing: Bool { row.sender == .me }
@@ -127,6 +140,7 @@ struct MessageRowView: View {
 
     var body: some View {
         let outgoing = outgoing
+        let gap = Self.actionsGap
         HStack(alignment: .top, spacing: 0) {
             if outgoing { Spacer(minLength: 100) }
             VStack(alignment: outgoing ? .trailing : .leading, spacing: 3) {
@@ -144,12 +158,13 @@ struct MessageRowView: View {
                     }
                 }
                 content
-                    // Hover counts on the bubble and a thin margin around it; the
-                    // padding is taken back so the layout doesn't change.
-                    .padding(Self.hoverMargin)
+                    // Hover counts on the bubble, a thin margin around it, and about
+                    // a bar's length out on the side the bar shows. The padding is
+                    // taken back so the layout doesn't change.
+                    .padding(hoverInsets)
                     .contentShape(Rectangle())
                     .onHover { nearBubble = $0 }
-                    .padding(-Self.hoverMargin)
+                    .padding(-hoverInsets)
                     .overlay(alignment: outgoing ? .bottomLeading : .bottomTrailing) {
                         // Hangs off the bubble's lower corner. (Empty without
                         // reactions; not wrapped in an `if`, which would drop the guides.)
@@ -172,7 +187,7 @@ struct MessageRowView: View {
                             copy: { store.copy(message) }
                         )
                         .alignmentGuide(outgoing ? .leading : .trailing) { d in
-                            outgoing ? d[.trailing] + 6 : d[.leading] - 6
+                            outgoing ? d[.trailing] + gap : d[.leading] - gap
                         }
                         .onHover { overActions = $0 }
                         .opacity(showsActions ? 1 : 0)
@@ -223,6 +238,10 @@ enum Reactions {
 
 /// React, reply and copy, as icons in a small glass bar.
 private struct MessageActions: View {
+    /// Three 26-point buttons and the bar's padding.
+    static let width: CGFloat = 3 * ActionButton.size + 2 * padding
+    static let padding: CGFloat = 2
+
     let reacted: String?
     @Binding var picking: Bool
     let react: (String) -> Void
@@ -250,7 +269,7 @@ private struct MessageActions: View {
             }
             .contentTransition(.symbolEffect(.replace))
         }
-        .padding(2)
+        .padding(Self.padding)
         .glassEffect(.regular, in: .capsule)
         .fixedSize()
     }
@@ -258,6 +277,7 @@ private struct MessageActions: View {
 
 /// One round icon button; its name shows only as a tooltip and to VoiceOver.
 private struct ActionButton: View {
+    static let size: CGFloat = 26
     let title: String
     let symbol: String
     let action: () -> Void
@@ -268,7 +288,7 @@ private struct ActionButton: View {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 26, height: 26)
+                .frame(width: Self.size, height: Self.size)
                 .background(Circle().fill(Color.primary.opacity(hovering ? 0.08 : 0)))
                 .contentShape(Circle())
         }
