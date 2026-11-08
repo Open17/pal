@@ -430,10 +430,6 @@ struct RichText: View {
             .lineSpacing(1.5)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
-            // Links open only on ⌘-click, so a plain click can select text.
-            .environment(\.openURL, OpenURLAction { url in
-                NSEvent.modifierFlags.contains(.command) ? .systemAction(url) : .handled
-            })
     }
 
     private func code(_ s: String) -> some View {
