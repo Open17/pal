@@ -370,7 +370,7 @@ struct ComputerPopover: View {
                         .font(.callout)
                 }
                 if let since = vm.startedAt {
-                    Text("On since \(Fmt.relative(since).lowercased())").font(.caption).foregroundStyle(.secondary)
+                    Text("On since \(Fmt.relativeInline(since))").font(.caption).foregroundStyle(.secondary)
                 }
             }
             Divider()

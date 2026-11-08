@@ -120,7 +120,7 @@ private struct MemoryDetail: View {
                     Tag(text: entry.kind)
                     ForEach(entry.tags, id: \.self) { Tag(text: "#\($0)") }
                     Spacer()
-                    Text("By \(store.name(of: entry.author)) · updated \(Fmt.relative(entry.updatedAt).lowercased())")
+                    Text("By \(store.name(of: entry.author)) · updated \(Fmt.relativeInline(entry.updatedAt))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
