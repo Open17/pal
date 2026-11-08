@@ -33,6 +33,7 @@ class TeamHarness:
         self.messenger = Messenger(ConversationLog(tmp_path / "conversations"), self.bus)
         self.state = BotStateStore(tmp_path / "state" / "bots.json")
         self.team = BotTeam(self.config, self.state, self.messenger, self.bus)
+        self.team.reaction_delay = 0.05
         self.scripts: dict[str, Any] = {}
         self.fail_resume = False
         self.team.add(self._agent(bot) for bot in self.config.bots)
