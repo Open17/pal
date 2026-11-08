@@ -111,17 +111,36 @@ enum Sockets {
 }
 
 /// Copies bytes in both directions between two connected sockets, then
-/// closes both. Each direction runs on its own thread.
+/// closes both.
+///
+/// Each direction reads on one thread and writes on another, with the bytes in
+/// between held in memory, so a side is always read as fast as it sends even
+/// while the other is slow to accept. This matters for the VM's sockets: when
+/// the Mac stopped reading one (a viewer busy drawing, a slow upload), the
+/// guest kept sending until the virtual socket device's buffer overflowed,
+/// which crashes the whole VM. A direction that falls more than `limit` bytes
+/// behind drops the connection instead.
 enum Splice {
-    static func run(_ first: Int32, _ second: Int32, completion: (@Sendable () -> Void)? = nil) {
+    static let limit = 64 * 1024 * 1024
+
+    static func run(
+        _ first: Int32, _ second: Int32, limit: Int = Splice.limit,
+        completion: (@Sendable () -> Void)? = nil
+    ) {
         Sockets.noSigPipe(first)
         Sockets.noSigPipe(second)
         let group = DispatchGroup()
+        let pair = Pair(first, second)
         for (source, destination) in [(first, second), (second, first)] {
+            let pipe = Pipe(limit: limit)
             group.enter()
             Thread.detachNewThread {
-                copy(from: source, to: destination)
-                shutdown(destination, SHUT_WR)
+                pipe.fill(from: source, pair: pair)
+                group.leave()
+            }
+            group.enter()
+            Thread.detachNewThread {
+                pipe.drain(to: destination, pair: pair)
                 group.leave()
             }
         }
@@ -132,16 +151,85 @@ enum Splice {
         }
     }
 
-    private static func copy(from source: Int32, to destination: Int32) {
-        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-        while true {
-            let count = read(source, &buffer, buffer.count)
-            guard count > 0 else { return }
-            var offset = 0
-            while offset < count {
-                let written = buffer.withUnsafeBytes { write(destination, $0.baseAddress! + offset, count - offset) }
-                guard written > 0 else { return }
-                offset += written
+    /// Both sockets, so either direction can end the whole connection.
+    final class Pair: @unchecked Sendable {
+        let first: Int32
+        let second: Int32
+        init(_ first: Int32, _ second: Int32) {
+            self.first = first
+            self.second = second
+        }
+
+        func abort() {
+            shutdown(first, SHUT_RDWR)
+            shutdown(second, SHUT_RDWR)
+        }
+    }
+
+    /// One direction's bytes in flight, between its reader and its writer.
+    final class Pipe: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var chunks: [Data] = []
+        private var queued = 0
+        private var ended = false
+        private var failed = false
+        private let limit: Int
+
+        init(limit: Int) { self.limit = limit }
+
+        func fill(from source: Int32, pair: Pair) {
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+            while true {
+                let count = read(source, &buffer, buffer.count)
+                condition.lock()
+                if count <= 0 || failed {
+                    ended = true
+                    condition.signal()
+                    condition.unlock()
+                    return
+                }
+                chunks.append(Data(buffer[0..<count]))
+                queued += count
+                let tooFarBehind = queued > limit
+                condition.signal()
+                condition.unlock()
+                if tooFarBehind {
+                    pair.abort()
+                }
+            }
+        }
+
+        func drain(to destination: Int32, pair: Pair) {
+            while true {
+                condition.lock()
+                while chunks.isEmpty && !ended {
+                    condition.wait()
+                }
+                if chunks.isEmpty {
+                    condition.unlock()
+                    shutdown(destination, SHUT_WR)
+                    return
+                }
+                let chunk = chunks.removeFirst()
+                queued -= chunk.count
+                condition.unlock()
+                let delivered = chunk.withUnsafeBytes { bytes -> Bool in
+                    var offset = 0
+                    while offset < bytes.count {
+                        let written = write(destination, bytes.baseAddress! + offset, bytes.count - offset)
+                        guard written > 0 else { return false }
+                        offset += written
+                    }
+                    return true
+                }
+                if !delivered {
+                    condition.lock()
+                    failed = true
+                    chunks.removeAll()
+                    condition.unlock()
+                    pair.abort()
+                    return
+                }
             }
         }
     }
