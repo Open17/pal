@@ -150,9 +150,10 @@ struct MessageRowView: View {
                             }
                         }
                     }
-                    // Beside the bubble, in the empty space next to it, so it
-                    // never narrows the message.
-                    .overlay(alignment: outgoing ? .topLeading : .topTrailing) {
+                    // Beside the bubble's last line, in the empty space next to
+                    // it, so it never narrows the message and stays in view
+                    // under a long one.
+                    .overlay(alignment: outgoing ? .bottomLeading : .bottomTrailing) {
                         MessageActions(
                             reacted: store.myReaction(to: message.id),
                             picking: $picking,
