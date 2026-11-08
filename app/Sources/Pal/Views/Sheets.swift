@@ -235,23 +235,25 @@ struct SettingsView: View {
             }
 
             Section {
-                TextField("Address", text: $serverURL)
-                    .font(.system(.body, design: .monospaced))
-                SecureField("Token", text: $token, prompt: Text("Read from the VM automatically"))
                 LabeledContent("Status") {
                     HStack(spacing: 6) {
                         Circle()
                             .fill(store.connection == .online ? Color.statusGreen : .secondary)
                             .frame(width: 8, height: 8)
-                        Text(statusText).lineLimit(1)
+                        Text(statusText).lineLimit(2)
                         Button("Reconnect") { store.reconnect() }
                     }
                 }
+                DisclosureGroup("Advanced") {
+                    TextField("Address", text: $serverURL)
+                        .font(.system(.body, design: .monospaced))
+                    SecureField("Token", text: $token, prompt: Text("Found automatically"))
+                    Text("Only change these if you run Pal’s computer somewhere else.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Connection")
-            } footer: {
-                Text("Pal’s computer makes its API available only on this Mac. Leave these as they are unless you know you need to change them.")
-                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -261,7 +263,7 @@ struct SettingsView: View {
                 Text("Notifications")
             } footer: {
                 if !Notifier.isAvailable {
-                    Text("Available when Pal runs as an app (app/scripts/pal.sh bundle).").foregroundStyle(.secondary)
+                    Text("Notifications work when Pal is opened as an app.").foregroundStyle(.secondary)
                 }
             }
         }
