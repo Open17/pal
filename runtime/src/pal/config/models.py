@@ -74,16 +74,10 @@ class ModelSettings:
 class PathSettings:
     """Where the runtime keeps workspaces, data, and configuration."""
 
+    #: The team's main folder, shared by every bot and the user.
     workspaces: Path
     data: Path
     config: Path
-
-    @property
-    def shared_workspace(self) -> Path:
-        return self.workspaces / "shared"
-
-    def bot_workspace(self, bot_id: str) -> Path:
-        return self.workspaces / bot_id
 
     @property
     def memory(self) -> Path:

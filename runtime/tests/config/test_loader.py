@@ -76,4 +76,3 @@ def test_paths_expand_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     write(tmp_path / "cfg" / "pal.toml", '[paths]\nworkspaces = "~/ws"\n')
     config = load_config(tmp_path / "cfg")
     assert config.paths.workspaces == (tmp_path / "ws").resolve()
-    assert config.paths.bot_workspace("atlas") == (tmp_path / "ws" / "atlas").resolve()

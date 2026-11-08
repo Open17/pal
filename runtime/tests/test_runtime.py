@@ -39,8 +39,9 @@ async def test_runtime_end_to_end(tmp_path: Path, monkeypatch) -> None:
     )
     await runtime.start()
     try:
-        assert (tmp_path / "ws" / "shared").is_dir()
-        assert (tmp_path / "ws" / "atlas").is_dir()
+        # One main folder for the whole team, with no per-bot folders.
+        assert (tmp_path / "ws").is_dir()
+        assert not (tmp_path / "ws" / "atlas").exists()
         token = (tmp_path / "cfg" / "secrets" / "api-token").read_text().strip()
         headers = {"Authorization": f"Bearer {token}"}
         base = f"http://127.0.0.1:{config.api.port}"

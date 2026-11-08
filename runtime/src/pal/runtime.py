@@ -57,7 +57,7 @@ class PalRuntime:
         self.team = BotTeam(config, self.state, self.messenger, self.bus)
 
         self.browser = SharedBrowser(
-            self.displays, paths.data / "browser", paths.shared_workspace / "downloads"
+            self.displays, paths.data / "browser", paths.workspaces / "downloads"
         )
         self.tools = ToolRegistry(
             [
@@ -92,10 +92,8 @@ class PalRuntime:
 
     def _prepare_directories(self) -> None:
         paths = self.config.paths
-        for directory in (paths.workspaces, paths.shared_workspace, paths.data, paths.state):
+        for directory in (paths.workspaces, paths.data, paths.state):
             directory.mkdir(parents=True, exist_ok=True)
-        for bot_id in self.config.bot_ids:
-            paths.bot_workspace(bot_id).mkdir(exist_ok=True)
 
     async def start(self) -> None:
         scrub_api_credentials()

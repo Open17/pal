@@ -35,9 +35,10 @@ def test_options_for_a_bot(tmp_path: Path) -> None:
         config.bot("atlas"), ModelSettings("claude-sonnet-5-5", "high"), resume="s1"
     )
     assert (options.model, options.effort, options.resume) == ("claude-sonnet-5-5", "high", "s1")
-    assert options.cwd == str(config.paths.bot_workspace("atlas"))
+    # Every bot works in the team's one shared folder.
+    assert options.cwd == str(config.paths.workspaces)
     assert Path(options.cwd).is_dir()
-    assert options.add_dirs == [str(config.paths.shared_workspace)]
+    assert options.add_dirs == []
     assert set(options.mcp_servers) == {"pal_memory", "pal_display"}
     assert options.allowed_tools == ["mcp__pal_memory", "mcp__pal_display"]
     assert options.permission_mode == "bypassPermissions"
