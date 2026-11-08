@@ -63,7 +63,7 @@ From inside the VM:
 ```sh
 palctl ssh
 pal status
-pal chat atlas
+pal chat pal
 ```
 
 If you skipped the token in step 2, sign in once inside the VM, then restart
@@ -114,7 +114,7 @@ or a single bot at runtime through the API:
 # all bots
 curl -X PATCH -d '{"effort": "medium"}' .../v1/settings
 # one bot
-curl -X PATCH -d '{"model": "claude-opus-5-5", "effort": "max"}' .../v1/bots/forge
+curl -X PATCH -d '{"model": "claude-opus-5-5", "effort": "max"}' .../v1/bots/pal
 ```
 
 Or set them permanently in `~/.config/pal/pal.toml` and `~/.config/pal/bots/<id>.toml`

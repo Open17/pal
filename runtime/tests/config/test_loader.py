@@ -25,7 +25,7 @@ def test_empty_directory_uses_defaults(tmp_path: Path) -> None:
 
 def test_repository_config_is_valid() -> None:
     config = load_config(REPO_CONFIG_DIR)
-    assert config.bot_ids == ("atlas", "forge", "scout")
+    assert config.bot_ids == ("pal",)  # one general-purpose bot; users add the rest
     assert all(bot.persona for bot in config.bots)
 
 

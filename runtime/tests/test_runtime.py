@@ -68,7 +68,7 @@ def test_config_check_command(capsys) -> None:
     assert main(["--config", str(REPO_CONFIG_DIR), "config", "check"]) == 0
     output = capsys.readouterr().out
     assert "claude-sonnet-5-5 (high effort)" in output
-    assert "atlas" in output and "forge" in output and "scout" in output
+    assert "pal" in output and "atlas" not in output  # one general-purpose bot to start
 
 
 def test_invalid_config_exits_with_error(tmp_path: Path, capsys) -> None:
