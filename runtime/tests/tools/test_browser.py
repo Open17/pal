@@ -7,7 +7,14 @@ import pytest
 from pal.config import DisplaySettings
 from pal.displays import DisplayManager, InMemoryDisplayBackend
 from pal.tools import ToolContext
-from pal.tools.browser import BrowserError, BrowserTools, SharedBrowser, chromium_command, locate
+from pal.tools.browser import (
+    BrowserError,
+    Browsers,
+    BrowserTools,
+    debug_port,
+    locate,
+    normalize_url,
+)
 
 
 class FakeLocator:
@@ -64,42 +71,32 @@ def test_locate_needs_a_target() -> None:
         locate(FakePage(), {})
 
 
-def test_chromium_uses_one_profile_and_debug_port(tmp_path: Path) -> None:
-    command = chromium_command(9222, tmp_path / "profile")
-    assert command[0] == "chromium"
-    assert "--remote-debugging-port=9222" in command
-    assert "--remote-debugging-address=127.0.0.1" in command
-    assert f"--user-data-dir={tmp_path / 'profile'}" in command
-    assert "--disable-backgrounding-occluded-windows" in command
+def test_addresses_without_a_scheme_get_https() -> None:
+    assert normalize_url(" example.com/a ") == "https://example.com/a"
+    assert normalize_url("file:///home/pal/a.html") == "file:///home/pal/a.html"
+    with pytest.raises(BrowserError):
+        normalize_url("  ")
 
 
 @pytest.fixture
-def shared(tmp_path: Path) -> SharedBrowser:
-    displays = DisplayManager(
+def displays(tmp_path: Path) -> DisplayManager:
+    manager = DisplayManager(
         DisplaySettings(backend="simulated"), InMemoryDisplayBackend(), tmp_path / "d.json"
     )
-    displays.register(["atlas", "scout"])
-    return SharedBrowser(displays, tmp_path / "profile", tmp_path / "downloads")
+    manager.register(["atlas", "scout"])
+    return manager
 
 
-def test_each_bot_only_sees_its_own_tabs(shared: SharedBrowser) -> None:
-    mine, theirs = FakePage("mine"), FakePage("theirs")
-    shared._claim("atlas", mine)
-    shared._claim("scout", theirs)
-    assert shared.tabs("atlas") == [mine]
-    assert shared.tabs("scout") == [theirs]
-    assert shared.owner(theirs) == "scout"
-    mine.closed = True
-    assert shared.tabs("atlas") == []
+def test_every_display_has_its_own_browser_port(displays: DisplayManager) -> None:
+    # The pal-chromium launcher derives the same port from the display number.
+    assert debug_port(displays.get("atlas")) == 9310
+    assert debug_port(displays.get("scout")) == 9311
+    assert debug_port(displays.get("operator")) == 9301
 
 
-def test_browser_has_its_own_display(shared: SharedBrowser) -> None:
-    assert shared.displays.get("browser").name == ":2"
-
-
-def test_browser_tools_do_not_wake_the_bots_display(shared: SharedBrowser) -> None:
-    provider = BrowserTools(shared)
-    assert provider.requires_display is False
+def test_browser_tools_use_the_bots_own_display(displays: DisplayManager, tmp_path: Path) -> None:
+    provider = BrowserTools(Browsers(displays, tmp_path))
+    assert provider.requires_display is True
     names = [t.name for t in provider.tools(ToolContext("atlas"))]
     assert names[:3] == ["browser_open", "browser_snapshot", "browser_click"]
     assert len(names) == 12

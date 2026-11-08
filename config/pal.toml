@@ -24,7 +24,6 @@ check_interval_seconds = 15
 geometry = "1280x800"             # what the bots see in screenshots
 depth = 24
 operator_display = 1             # your remote-control display, :1
-browser_display = 2              # the shared browser, :2
 first_bot_display = 10           # bots get :10, :11, ...
 vnc_internal_base_port = 15900   # Xvnc on localhost
 vnc_public_base_port = 5900      # proxied for viewers (5901 = :1, 5910 = :10)

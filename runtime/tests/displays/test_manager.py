@@ -43,7 +43,7 @@ def make_manager(tmp_path: Path, backend, clock, bus=None) -> DisplayManager:
 def test_allocation_is_stable_across_restarts(tmp_path: Path, backend, clock) -> None:
     manager = make_manager(tmp_path, backend, clock)
     numbers = {d.owner: d.number for d in manager.all()}
-    assert numbers == {"operator": 1, "browser": 2, "atlas": 10, "scout": 11}
+    assert numbers == {"operator": 1, "atlas": 10, "scout": 11}
     assert manager.get("atlas").vnc_public_port == 5910
     assert manager.get("atlas").vnc_internal_port == 15910
 
@@ -120,7 +120,6 @@ async def test_live_displays_are_restored_after_reboot(tmp_path: Path, backend, 
     await restored.restore()
     assert {d.owner: d.state for d in restored.all()} == {
         "operator": "stopped",
-        "browser": "stopped",
         "atlas": "running",
         "scout": "running",
     }
