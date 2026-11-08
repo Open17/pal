@@ -92,6 +92,12 @@ final class PalStore {
     var work: [String: [ToolCall]] = [:]
     var unread: [String: Int] = [:]
     var drafts: [String: String] = [:]
+    /// Reactions on each message, by message id, then by who reacted.
+    var reactions: [String: [String: String]] = [:]
+    /// The message you're replying to in each chat, by bot id.
+    var replyingTo: [String: Message] = [:]
+    /// A message to bring into view and highlight, by bot id; the chat clears it.
+    var focusedMessage: [String: String] = [:]
     /// Where you left each chat scrolled up, by bot id, until the app quits.
     /// No entry means you were at the newest message, and it opens there.
     @ObservationIgnored var scrollSpots: [String: CGFloat] = [:]
@@ -350,6 +356,10 @@ final class PalStore {
     }
 
     private func receive(_ message: Message) {
+        if message.isReaction {
+            receiveReaction(message)
+            return
+        }
         // A bot's reply carries the tool calls of the turn that produced it.
         if pal(message.sender) != nil, message.replyTo != nil, let calls = liveTools[message.sender], !calls.isEmpty {
             work[message.id] = calls
@@ -385,6 +395,37 @@ final class PalStore {
         }
     }
 
+    /// A reaction from a bot reads like a reply: it's unread, and notifies you.
+    private func receiveReaction(_ reaction: Message) {
+        applyReaction(reaction)
+        guard reaction.sender != "user", reaction.recipient == "user", !reaction.content.isEmpty,
+              let pal = pal(reaction.sender) else { return }
+        if !isViewing(pal.id) { unread[pal.id, default: 0] += 1 }
+        if !NSApp.isActive {
+            let quoted = reaction.replyTo.flatMap { id in messages[pal.id]?.first { $0.id == id } }
+            let body = quoted.map { "Reacted \(reaction.content) to “\($0.content.previewLine)”" } ?? "Reacted \(reaction.content)"
+            Notifier.post(id: reaction.id, title: pal.name, body: body, palId: pal.id)
+        }
+    }
+
+    /// One reaction per person per message: a newer one replaces it, an empty one removes it.
+    private func applyReaction(_ reaction: Message) {
+        guard let target = reaction.replyTo else { return }
+        if reaction.content.isEmpty {
+            reactions[target]?[reaction.sender] = nil
+        } else {
+            reactions[target, default: [:]][reaction.sender] = reaction.content
+        }
+    }
+
+    /// Splits loaded history into messages and the reactions on them.
+    private func takeReactions(_ loaded: [Message]) -> [Message] {
+        loaded.filter { message in
+            if message.isReaction { applyReaction(message) }
+            return !message.isReaction
+        }
+    }
+
     private func becomeReady() async {
         guard !isReady else { return }
         // Let the launch screen settle rather than flash when everything loads at once.
@@ -406,9 +447,10 @@ final class PalStore {
             }
             for await (id, loaded) in group {
                 guard let loaded else { continue }
-                let ids = Set(loaded.map(\.id))
+                let shown = takeReactions(loaded)
+                let ids = Set(shown.map(\.id))
                 let live = (messages[id] ?? []).filter { !ids.contains($0.id) }
-                messages[id] = loaded + live
+                messages[id] = shown + live
             }
         }
     }
@@ -434,9 +476,10 @@ final class PalStore {
             }
             for await (id, loaded) in group {
                 guard let loaded else { continue }
-                let ids = Set(loaded.map(\.id))
+                let shown = takeReactions(loaded)
+                let ids = Set(shown.map(\.id))
                 let live = (teamMessages[id] ?? []).filter { !ids.contains($0.id) }
-                teamMessages[id] = loaded + live
+                teamMessages[id] = shown + live
             }
         }
     }
@@ -453,7 +496,7 @@ final class PalStore {
     func loadTeamConversation(_ id: String) async {
         struct Page: Decodable { let messages: [Message] }
         if let page: Page = try? await client.get("/v1/conversations/\(id)/messages?limit=300") {
-            teamMessages[id] = page.messages
+            teamMessages[id] = takeReactions(page.messages)
         }
     }
 
@@ -481,20 +524,70 @@ final class PalStore {
 
     // MARK: - Chat
 
+    /// Sends your message, as a reply to the message you picked, if any.
     func send(_ text: String, to id: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        let quoted = replyingTo[id]
         drafts[id] = nil
+        replyingTo[id] = nil
         Task {
             do {
+                struct Body: Encodable {
+                    let content: String
+                    let replyTo: String?
+                    enum CodingKeys: String, CodingKey { case content, replyTo = "reply_to" }
+                }
                 struct Sent: Decodable { let message: Message }
-                let sent: Sent = try await client.post("/v1/bots/\(id)/messages", ["content": text])
+                let sent: Sent = try await client.post("/v1/bots/\(id)/messages", Body(content: text, replyTo: quoted?.id))
                 receive(sent.message)
             } catch {
-                if (drafts[id] ?? "").isEmpty { drafts[id] = text }
+                if (drafts[id] ?? "").isEmpty {
+                    drafts[id] = text
+                    if replyingTo[id] == nil { replyingTo[id] = quoted }
+                }
                 show(error)
             }
         }
+    }
+
+    /// Your reaction to a message, if you've left one.
+    func myReaction(to messageId: String) -> String? {
+        reactions[messageId]?["user"]
+    }
+
+    /// Reacts to a message in your chat with a bot. Picking your current
+    /// reaction again takes it back.
+    func react(_ emoji: String, to message: Message, in palId: String) {
+        let previous = myReaction(to: message.id)
+        let next = previous == emoji ? "" : emoji
+        // Shown right away; put back if the runtime refuses it.
+        reactions[message.id, default: [:]]["user"] = next.isEmpty ? nil : next
+        Task {
+            do {
+                struct Body: Encodable {
+                    let messageId: String
+                    let emoji: String
+                    enum CodingKeys: String, CodingKey { case messageId = "message_id", emoji }
+                }
+                struct Sent: Decodable { let message: Message }
+                let _: Sent = try await client.post("/v1/bots/\(palId)/reactions", Body(messageId: message.id, emoji: next))
+            } catch {
+                reactions[message.id, default: [:]]["user"] = previous
+                show(error)
+            }
+        }
+    }
+
+    func copy(_ message: Message) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(message.content, forType: .string)
+    }
+
+    /// Opens a chat at one of its messages, highlighted for a moment.
+    func reveal(_ messageId: String, in palId: String) {
+        open(palId)
+        focusedMessage[palId] = messageId
     }
 
     func interrupt(_ id: String) {

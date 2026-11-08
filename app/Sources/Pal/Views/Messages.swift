@@ -61,8 +61,9 @@ enum Timeline {
         for message in messages {
             flushTeam(before: message.createdAt)
             startDay(message.createdAt)
-            // Messages to teammates show in their own pill (see `TeamExchangeView`).
-            if let calls = work[message.id]?.filter({ Tools.shortName($0.tool) != "message_bot" }), !calls.isEmpty {
+            // Messages to teammates show in their own pill (see `TeamExchangeView`),
+            // and reactions on the message they're on.
+            if let calls = work[message.id]?.filter({ !Tools.shownElsewhere($0.tool) }), !calls.isEmpty {
                 items.append(.work(id: "work-\(message.id)", calls: calls))
             }
             if message.isError {
@@ -105,55 +106,246 @@ enum Timeline {
 // MARK: - Message row
 
 /// One message, without a time or avatar beside it: theirs at the left
-/// edge, yours at the right.
+/// edge, yours at the right. Hovering near it shows its actions.
 struct MessageRowView: View {
     @Environment(PalStore.self) private var store
     let row: MessageRow
     let pal: Pal
+    var highlighted = false
+    @State private var hovering = false
+    @State private var picking = false
+
+    private var message: Message { row.message }
+    private var outgoing: Bool { row.sender == .me }
+    private var reactions: [String: String] { store.reactions[message.id] ?? [:] }
 
     var body: some View {
-        Group {
-            if row.sender == .me {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 100)
-                    content(outgoing: true)
-                }
-            } else {
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        // A teammate who speaks up here is named; the bot you're talking to isn't.
-                        if case .teammate(let id) = row.sender, row.isFirst {
-                            HStack(spacing: 6) {
-                                Text(store.name(of: id)).font(.system(size: 12, weight: .semibold))
-                                Tag(text: "Teammate")
-                            }
-                            .padding(.leading, 4)
-                        }
-                        content(outgoing: false)
+        let outgoing = outgoing
+        HStack(alignment: .top, spacing: 0) {
+            if outgoing { Spacer(minLength: 100) }
+            VStack(alignment: outgoing ? .trailing : .leading, spacing: 3) {
+                // A teammate who speaks up here is named; the bot you're talking to isn't.
+                if case .teammate(let id) = row.sender, row.isFirst {
+                    HStack(spacing: 6) {
+                        Text(store.name(of: id)).font(.system(size: 12, weight: .semibold))
+                        Tag(text: "Teammate")
                     }
-                    Spacer(minLength: 100)
+                    .padding(.leading, 4)
                 }
+                if let quote = message.quote, let quotedId = message.replyTo {
+                    QuoteView(name: store.name(of: quote.sender), text: quote.content) {
+                        store.focusedMessage[pal.id] = quotedId
+                    }
+                }
+                content
+                    .overlay(alignment: outgoing ? .bottomLeading : .bottomTrailing) {
+                        if !reactions.isEmpty {
+                            ReactionChips(reactions: reactions, names: store.name(of:)) { emoji in
+                                store.react(emoji, to: message, in: pal.id)
+                            }
+                            // Hangs off the bubble's lower corner.
+                            .alignmentGuide(.bottom) { $0[.bottom] - 12 }
+                            .alignmentGuide(outgoing ? .leading : .trailing) { d in
+                                outgoing ? d[.leading] + 4 : d[.trailing] - 4
+                            }
+                        }
+                    }
+                    // Beside the bubble, in the empty space next to it, so it
+                    // never narrows the message.
+                    .overlay(alignment: outgoing ? .topLeading : .topTrailing) {
+                        MessageActions(
+                            reacted: store.myReaction(to: message.id),
+                            picking: $picking,
+                            react: { store.react($0, to: message, in: pal.id) },
+                            reply: { store.replyingTo[pal.id] = message },
+                            copy: { store.copy(message) }
+                        )
+                        .alignmentGuide(outgoing ? .leading : .trailing) { d in
+                            outgoing ? d[.trailing] + 8 : d[.leading] - 8
+                        }
+                        .opacity(hovering || picking ? 1 : 0)
+                        .allowsHitTesting(hovering || picking)
+                        .animation(.easeOut(duration: 0.12), value: hovering || picking)
+                    }
             }
+            .padding(.bottom, reactions.isEmpty ? 0 : 14)
+            if !outgoing { Spacer(minLength: 100) }
         }
         .padding(.top, row.isFirst ? 10 : 0)
+        // The whole row counts as near the message, not just the bubble.
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
     }
 
     @ViewBuilder
-    private func content(outgoing: Bool) -> some View {
-        let text = row.message.content
-        if text.isEmojiOnly {
-            Text(text.trimmingCharacters(in: .whitespaces))
-                .font(.system(size: 40))
-        } else {
-            RichText(text: text, inverted: outgoing)
-                .bubble(outgoing: outgoing, first: row.isFirst, last: row.isLast)
-                .contextMenu {
-                    Button("Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(text, forType: .string)
+    private var content: some View {
+        let text = message.content
+        Group {
+            if text.isEmojiOnly {
+                Text(text.trimmingCharacters(in: .whitespaces))
+                    .font(.system(size: 40))
+            } else {
+                RichText(text: text, inverted: outgoing)
+                    .bubble(outgoing: outgoing, first: row.isFirst, last: row.isLast)
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.palAccent, lineWidth: 2)
+                .padding(-3)
+                .opacity(highlighted ? 1 : 0)
+        }
+        .contextMenu {
+            Menu("React") {
+                ForEach(Reactions.choices, id: \.self) { emoji in
+                    Button(emoji) { store.react(emoji, to: message, in: pal.id) }
+                }
+            }
+            Button("Reply") { store.replyingTo[pal.id] = message }
+            Button("Copy") { store.copy(message) }
+        }
+    }
+}
+
+enum Reactions {
+    /// The quick picks, like tapbacks.
+    static let choices = ["❤️", "👍", "👎", "😂", "‼️", "❓"]
+}
+
+/// React, reply and copy, as icons in a small glass bar.
+private struct MessageActions: View {
+    let reacted: String?
+    @Binding var picking: Bool
+    let react: (String) -> Void
+    let reply: () -> Void
+    let copy: () -> Void
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ActionButton(title: "React", symbol: "face.smiling") { picking.toggle() }
+                .popover(isPresented: $picking, arrowEdge: .top) {
+                    ReactionPicker(current: reacted) { emoji in
+                        picking = false
+                        react(emoji)
                     }
                 }
+            ActionButton(title: "Reply", symbol: "arrowshape.turn.up.left", action: reply)
+            ActionButton(title: copied ? "Copied" : "Copy", symbol: copied ? "checkmark" : "doc.on.doc") {
+                copy()
+                copied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.2))
+                    copied = false
+                }
+            }
+            .contentTransition(.symbolEffect(.replace))
         }
+        .padding(2)
+        .glassEffect(.regular, in: .capsule)
+        .fixedSize()
+    }
+}
+
+/// One round icon button; its name shows only as a tooltip and to VoiceOver.
+private struct ActionButton: View {
+    let title: String
+    let symbol: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(Color.primary.opacity(hovering ? 0.08 : 0)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .help(title)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// The quick reactions, with yours marked; picking it again takes it back.
+private struct ReactionPicker: View {
+    let current: String?
+    let pick: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Reactions.choices, id: \.self) { emoji in
+                Button { pick(emoji) } label: {
+                    Text(emoji)
+                        .font(.system(size: 20))
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(emoji == current ? Color.palAccent.opacity(0.25) : .clear))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(emoji == current ? "Remove \(emoji)" : "React \(emoji)")
+            }
+        }
+        .padding(8)
+    }
+}
+
+/// Reactions on a message: yours (tinted, click to take it back) and the bot's.
+private struct ReactionChips: View {
+    let reactions: [String: String]
+    let names: (String) -> String
+    let toggle: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 3) {
+            // Theirs first, then yours, so the order is stable.
+            ForEach(reactions.sorted { ($0.key == "user" ? 1 : 0, $0.key) < ($1.key == "user" ? 1 : 0, $1.key) }, id: \.key) { who, emoji in
+                let mine = who == "user"
+                Text(emoji)
+                    .font(.system(size: 13))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(mine ? Color.palAccent.opacity(0.22) : Color.incomingBubble))
+                    .overlay(Capsule().strokeBorder(Color.chatBackground, lineWidth: 2))
+                    .contentShape(Capsule())
+                    .onTapGesture { if mine { toggle(emoji) } }
+                    .help(mine ? "You reacted \(emoji). Click to take it back." : "\(names(who)) reacted \(emoji)")
+                    .accessibilityLabel(mine ? "Your reaction, \(emoji)" : "\(names(who)) reacted \(emoji)")
+                    .accessibilityAddTraits(mine ? .isButton : [])
+            }
+        }
+    }
+}
+
+/// The message you replied to, above your reply. Clicking it shows the original.
+private struct QuoteView: View {
+    let name: String
+    let text: String
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                Text("\(Text(name).fontWeight(.semibold)) \(text.previewLine)")
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            .font(.system(size: 11.5))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.hairline))
+            .frame(maxWidth: 420, alignment: .trailing)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Show the message you replied to")
     }
 }
 

@@ -280,6 +280,11 @@ enum Tools {
         tool.hasPrefix("mcp__") ? (tool.components(separatedBy: "__").last ?? tool) : tool
     }
 
+    /// Tools whose result shows elsewhere in the chat, not as a work step.
+    static func shownElsewhere(_ tool: String) -> Bool {
+        ["message_bot", "react"].contains(shortName(tool))
+    }
+
     static func describe(_ tool: String, _ input: JSONValue) -> ToolStep {
         let file = input["file_path"]?.string ?? input["path"]?.string
         let fileName = file.map { URL(fileURLWithPath: $0).lastPathComponent }
@@ -311,6 +316,8 @@ enum Tools {
             let to = input["to"]?.string.map { $0.prefix(1).uppercased() + $0.dropFirst() }
             let asked = input["wait_for_reply"] == .bool(true)
             return ToolStep(symbol: "paperplane", text: "\(asked ? "Asked" : "Messaged") \(to ?? "a teammate")", detail: input["message"]?.string)
+        case "react":
+            return ToolStep(symbol: "face.smiling", text: "Reacted \(input["emoji"]?.string ?? "")", detail: nil)
         case "list_bots":
             return ToolStep(symbol: "person.3", text: "Checked who's on the team", detail: nil)
         case "remember":

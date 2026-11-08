@@ -252,7 +252,7 @@ private struct MessageList: View {
                             case .day(let date):
                                 DaySeparator(date: date)
                             case .message(let row):
-                                MessageRowView(row: row, pal: pal)
+                                MessageRowView(row: row, pal: pal, highlighted: flashing == row.message.id)
                             case let .work(_, calls):
                                 WorkGroupView(calls: calls, active: false)
                                     .padding(.vertical, 3)
@@ -324,6 +324,11 @@ private struct MessageList: View {
                     }
                     settled = true
                 }
+                .onChange(of: store.focusedMessage[pal.id], initial: true) { _, id in
+                    guard let id else { return }
+                    store.focusedMessage[pal.id] = nil
+                    reveal(id, proxy)
+                }
                 .onChange(of: messages.last?.id) { old, _ in
                     // Your own message always brings you down; a bot's only if you were there.
                     guard following || messages.last?.sender == "user" else { return }
@@ -335,6 +340,8 @@ private struct MessageList: View {
     }
 
     @State private var following = true
+    /// A message being pointed out, outlined for a moment.
+    @State private var flashing: String?
     @State private var position = ScrollPosition()
     /// False until the opening scroll lands, so its layout passes don't count as you scrolling.
     @State private var settled = false
@@ -347,6 +354,19 @@ private struct MessageList: View {
     }
 
     private static let bottom = "bottom"
+
+    /// Brings a message into view and outlines it briefly.
+    private func reveal(_ id: String, _ proxy: ScrollViewProxy) {
+        Task {
+            // A chat that just opened is still landing at its newest message.
+            if !settled { try? await Task.sleep(for: .seconds(0.5)) }
+            following = false
+            withAnimation(.smooth(duration: 0.4)) { proxy.scrollTo(id, anchor: .center) }
+            withAnimation(.easeOut(duration: 0.2)) { flashing = id }
+            try? await Task.sleep(for: .seconds(1.4))
+            withAnimation(.easeOut(duration: 0.5)) { if flashing == id { flashing = nil } }
+        }
+    }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
         Task {
